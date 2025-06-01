@@ -1,9 +1,13 @@
 
 from db import db
 from db import Team, Match, EloRating
-from flask import Flask, request, json
+from flask import Flask, request, json, Response
 from datetime import datetime
 from flask import render_template
+import math
+import pandas as pd
+import requests
+from io import StringIO
 
 
 app = Flask(__name__)
@@ -18,10 +22,10 @@ with app.app_context():
     db.create_all()
 
 def success_response(data, code=200):
-    return json.dumps(data), code
+    return Response(json.dumps(data, indent=2), status=code, mimetype='application/json')
 
 def failure_response(message, code=404):
-    return json.dumps({"error": message}), code
+    return Response(json.dumps({"error": message}, indent=2), status=code, mimetype='application/json')
 
 
 
@@ -178,6 +182,73 @@ def batch_update_elo_for_all_matches(k=20):
         update_elo_after_match(match.id, k)
     print(f"Processed {len(matches)} matches for Elo recalculation.")
 
-    
+
+def fetch_csv(url):
+    print(f"Fetching: {url}")
+    res = requests.get(url)
+    if res.ok:
+        return pd.read_csv(StringIO(res.text))
+    else:
+        print(f"Failed to fetch: {url}")
+        return None
+
+def get_or_create_team(name, country="Unknown"):
+    team = Team.query.filter_by(name=name).first()
+    if not team:
+        team = Team(name=name, country=country)
+        db.session.add(team)
+        db.session.commit()
+    return team
+
+def import_matches_from_csv(url):
+    with app.app_context():
+        df = fetch_csv(url)
+        if df is None:
+            return
+
+        required_cols = {"Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG"}
+        if not required_cols.issubset(df.columns):
+            print(f"Missing required columns in {url}")
+            return
+
+        for _, row in df.iterrows():
+            try:
+                # Check for missing team names
+                if pd.isna(row["HomeTeam"]) or pd.isna(row["AwayTeam"]):
+                    print(f"Skipping row with missing team name: {row}")
+                    continue
+
+                match_date = pd.to_datetime(row["Date"], dayfirst=True).date()
+                home = get_or_create_team(row["HomeTeam"])
+                away = get_or_create_team(row["AwayTeam"])
+                existing_match = Match.query.filter_by(
+                    date=match_date,
+                    home_team_id=home.id,
+                    away_team_id=away.id
+                ).first()
+                if existing_match:
+                    continue
+
+                match = Match(
+                    date=match_date,
+                    home_team_id=home.id,
+                    away_team_id=away.id,
+                    home_score=int(row["FTHG"]),
+                    away_score=int(row["FTAG"])
+                )
+                db.session.add(match)
+            except Exception as e:
+                print(f"Error processing row: {e}")
+                db.session.rollback()
+
+        db.session.commit()
+        print("Finished importing.")
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "batch_update_elo":
+        with app.app_context():
+            batch_update_elo_for_all_matches()
+    else:
+        app.run(host="0.0.0.0", port=5000, debug=True)
