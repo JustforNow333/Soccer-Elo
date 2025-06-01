@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 
-db = SQLAlchemy 
+db = SQLAlchemy() 
 
 def expected_result(team_rating, opponent_rating):
     return 1 / (1 + 10 ** ((opponent_rating - team_rating) / 400))
