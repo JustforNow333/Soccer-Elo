@@ -13,6 +13,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
+print("DATABASE_URL in env:", "DATABASE_URL" in os.environ)
+print("DATABASE_URL value:", os.environ.get("DATABASE_URL"))
+
 db.init_app(app)
 
 
