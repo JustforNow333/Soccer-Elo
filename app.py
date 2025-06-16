@@ -114,19 +114,28 @@ def get_elo_ratings():
     })
 
 
+
 @app.route("/")
 def show_teams():
-    teams = Team.query.all()
+    from sqlalchemy.orm import joinedload
+
+    # Eager load EloRating in a single query
+    teams = Team.query.options(
+        joinedload(Team.elo_ratings)
+    ).all()
+
     team_elos = []
     for team in teams:
-        latest = EloRating.query.filter_by(team_id=team.id).order_by(
-            EloRating.date.desc()).first()
+        latest = max(team.elo_ratings, key=lambda r: r.date, default=None)
         team_elos.append({
             "name": team.name,
             "league": team.league,
             "elo": round(latest.rating, 1) if latest else "N/A"
         })
-    team_elos.sort(key=lambda x: x["elo"] if isinstance(x["elo"], float) else 0, reverse=True)
+
+    team_elos.sort(key=lambda x: x["elo"]
+                   if isinstance(x["elo"], float) else 0,
+                   reverse=True)
     return render_template("team_elos.html", teams=team_elos)
 
 
