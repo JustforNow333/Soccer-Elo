@@ -5,7 +5,6 @@ from datetime import datetime
 from flask_cors import CORS
 import os
 from elo_utils import expected_result, update_elo, get_match_result
-import stripe
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -16,8 +15,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
-# Initialize Stripe
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+# Initialize Stripe only when needed
+def init_stripe():
+    import stripe
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+    return stripe
 
 db.init_app(app)
 
@@ -187,6 +189,8 @@ def health():
 
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
+    stripe = init_stripe()  # Initialize Stripe when needed
+    
     data = request.get_json()
     email = data.get("email")
 
@@ -222,6 +226,8 @@ def create_checkout_session():
 
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
+    stripe = init_stripe()  # Initialize Stripe when needed
+    
     payload = request.data
     sig_header = request.headers.get("Stripe-Signature")
     endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
