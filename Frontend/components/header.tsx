@@ -22,7 +22,7 @@ export function Header() {
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
           <Link href="/subscription" className="text-sm font-medium hover:text-primary transition-colors">
-            Premium
+            Strategic Insights
           </Link>
         </nav>
 
@@ -63,7 +63,7 @@ export function Header() {
               className="block py-2 text-sm font-medium hover:text-primary transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              Premium
+              Strategic Insights
             </Link>
           </nav>
         </div>

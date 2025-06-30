@@ -53,7 +53,7 @@ export default function SuccessPage() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <p className="text-muted-foreground">
-                Thank you for subscribing to Soccer Elo Premium! Your subscription is now active.
+                Thank you for subscribing to Strategic Betting Insights! Your subscription is now active.
               </p>
               {sessionId && (
                 <p className="text-sm text-muted-foreground">
@@ -65,14 +65,11 @@ export default function SuccessPage() {
             <div className="bg-muted/50 rounded-lg p-4">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Crown className="h-5 w-5 text-primary" />
-                <span className="font-semibold">Premium Features Unlocked</span>
+                <span className="font-semibold">Strategic Insights Unlocked</span>
               </div>
               <div className="text-sm text-muted-foreground space-y-1">
-                <p>✓ Advanced team analytics</p>
-                <p>✓ Historical data access</p>
-                <p>✓ Custom league tracking</p>
-                <p>✓ Export data features</p>
-                <p>✓ Priority support</p>
+                <p>✓ Historical win/loss ratios for all teams</p>
+                <p>✓ Upcoming matches with high-confidence predictions</p>
               </div>
             </div>
 
@@ -80,7 +77,7 @@ export default function SuccessPage() {
               <Link href="/">
                 <Button className="w-full">
                   <ArrowRight className="h-4 w-4 mr-2" />
-                  Start Exploring Premium Features
+                  Start Using Strategic Insights
                 </Button>
               </Link>
               

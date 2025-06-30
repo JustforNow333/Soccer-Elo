@@ -29,11 +29,8 @@ export default function CancelPage() {
             <div className="bg-muted/50 rounded-lg p-4">
               <h3 className="font-semibold mb-2">What you're missing out on:</h3>
               <div className="text-sm text-muted-foreground space-y-1">
-                <p>• Advanced team analytics and insights</p>
-                <p>• Complete historical data access</p>
-                <p>• Custom league tracking capabilities</p>
-                <p>• Data export features for analysis</p>
-                <p>• Priority customer support</p>
+                <p>• Historical win/loss ratios for all teams</p>
+                <p>• Upcoming matches with high-confidence predictions</p>
               </div>
             </div>
 
@@ -54,7 +51,7 @@ export default function CancelPage() {
             </div>
 
             <div className="text-sm text-muted-foreground">
-              <p>Have questions about our premium features?</p>
+              <p>Have questions about our strategic betting insights?</p>
               <p>Feel free to contact us for more information.</p>
             </div>
           </CardContent>

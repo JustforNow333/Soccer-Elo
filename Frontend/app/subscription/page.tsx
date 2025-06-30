@@ -74,9 +74,9 @@ export default function SubscriptionPage() {
       <div className="container py-8 max-w-4xl mx-auto">
         <div className="text-center mb-8">
           <Crown className="h-12 w-12 text-primary mx-auto mb-4" />
-          <h1 className="text-4xl font-bold mb-2">Premium Subscription</h1>
+          <h1 className="text-4xl font-bold mb-2">Strategic Betting Insights</h1>
           <p className="text-muted-foreground text-lg">
-            Unlock advanced features and get the most out of Soccer Elo Rankings
+            Get data-driven insights to make smarter betting decisions
           </p>
         </div>
 
@@ -87,9 +87,9 @@ export default function SubscriptionPage() {
               <Crown className="h-6 w-6 text-primary" />
             </div>
             <CardHeader>
-              <CardTitle className="text-2xl">Premium Plan</CardTitle>
+              <CardTitle className="text-2xl">Strategic Betting Insights</CardTitle>
               <div className="text-3xl font-bold">
-                $9.99
+                $19.99
                 <span className="text-lg font-normal text-muted-foreground">/month</span>
               </div>
             </CardHeader>
@@ -97,23 +97,11 @@ export default function SubscriptionPage() {
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-green-500" />
-                  <span>Advanced team analytics</span>
+                  <span>Historical win/loss ratios for all teams</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Check className="h-5 w-5 text-green-500" />
-                  <span>Historical data access</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-green-500" />
-                  <span>Custom league tracking</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-green-500" />
-                  <span>Export data features</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Check className="h-5 w-5 text-green-500" />
-                  <span>Priority support</span>
+                  <span>Upcoming matches with high-confidence predictions</span>
                 </div>
               </div>
             </CardContent>
@@ -197,7 +185,7 @@ export default function SubscriptionPage() {
             <div>
               <h4 className="font-semibold mb-2">What happens after I subscribe?</h4>
               <p className="text-muted-foreground">
-                After successful payment, you'll gain immediate access to all premium features and receive a confirmation email.
+                After successful payment, you'll gain immediate access to historical team data and high-confidence match predictions, plus receive a confirmation email.
               </p>
             </div>
           </CardContent>
