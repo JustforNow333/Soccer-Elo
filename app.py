@@ -15,8 +15,15 @@ CORS(app, resources={r"/api/*": {"origins": [
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
-# Initialize Stripe
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+# Initialize Stripe with error handling
+stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY")
+if stripe_secret_key:
+    stripe.api_key = stripe_secret_key
+    print("✓ Stripe initialized successfully")
+else:
+    print("⚠️  WARNING: STRIPE_SECRET_KEY environment variable not set!")
+    print("   Subscription features will not work until this is configured.")
 db.init_app(app)
 
 @app.route("/debug/teams/")
@@ -163,6 +170,17 @@ def check_premium_status():
 @app.route("/")
 def health():
     return jsonify({"status": "ok"})
+
+@app.route("/debug/config")
+def debug_config():
+    """Debug endpoint to check configuration (remove in production!)"""
+    return jsonify({
+        "stripe_configured": bool(stripe.api_key),
+        "database_url_set": bool(os.environ.get("DATABASE_URL")),
+        "stripe_webhook_secret_set": bool(os.environ.get("STRIPE_WEBHOOK_SECRET")),
+        "stripe_publishable_key_set": bool(os.environ.get("STRIPE_PUBLISHABLE_KEY")),
+        "environment_variables": list(os.environ.keys())
+    })
 # def show_teams():
 #     from sqlalchemy.orm import joinedload
 
@@ -190,6 +208,10 @@ def create_checkout_session():
 
     if not email:
         return jsonify({"error": "Email is required"}), 400
+
+    # Check if Stripe is properly configured
+    if not stripe.api_key:
+        return jsonify({"error": "Payment system not configured. Please contact support."}), 500
 
     try:
         # Create or get existing user
@@ -220,6 +242,10 @@ def create_checkout_session():
 
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
+    # Check if Stripe is properly configured
+    if not stripe.api_key:
+        return jsonify({"error": "Payment system not configured"}), 500
+
     payload = request.data
     sig_header = request.headers.get("Stripe-Signature")
     endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
