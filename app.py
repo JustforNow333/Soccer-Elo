@@ -5,6 +5,7 @@ from datetime import datetime
 from flask_cors import CORS
 import os
 from elo_utils import expected_result, update_elo, get_match_result
+import stripe
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -14,13 +15,8 @@ CORS(app, resources={r"/api/*": {"origins": [
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
-
-# Initialize Stripe only when needed
-def init_stripe():
-    import stripe
-    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-    return stripe
-
+# Initialize Stripe
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 db.init_app(app)
 
 @app.route("/debug/teams/")
@@ -189,8 +185,6 @@ def health():
 
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
-    stripe = init_stripe()  # Initialize Stripe when needed
-    
     data = request.get_json()
     email = data.get("email")
 
@@ -226,8 +220,6 @@ def create_checkout_session():
 
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
-    stripe = init_stripe()  # Initialize Stripe when needed
-    
     payload = request.data
     sig_header = request.headers.get("Stripe-Signature")
     endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
@@ -406,6 +398,136 @@ def update_elo_after_match(match_id, k=20):
     return {"message": "Elo updated"}, 200
 
 # NO scheduler runs at startup anymore
+
+@app.route("/api/strategic-betting", methods=["POST"])
+def get_strategic_betting_opportunities():
+    """Get categorized betting opportunities based on Elo differences (Premium feature)"""
+    data = request.get_json()
+    email = data.get("email")
+    
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    
+    # Check premium status
+    user = User.query.filter_by(email=email).first()
+    if not user or not user.is_premium_active():
+        return jsonify({"error": "Premium subscription required"}), 403
+    
+    try:
+        from sqlalchemy import func, and_
+        from datetime import date, timedelta
+        
+        # Get matches from today onwards (upcoming matches)
+        today = date.today()
+        upcoming_matches = Match.query.filter(Match.date >= today).order_by(Match.date.asc()).all()
+        
+        if not upcoming_matches:
+            return jsonify({
+                "opportunities": [],
+                "message": "No upcoming matches found"
+            })
+        
+        # Get latest Elo ratings for all teams involved in upcoming matches
+        team_ids = set()
+        for match in upcoming_matches:
+            team_ids.add(match.home_team_id)
+            team_ids.add(match.away_team_id)
+        
+        # Get latest Elo ratings in batch
+        subquery = db.session.query(
+            EloRating.team_id,
+            func.max(EloRating.date).label("latest_date")
+        ).filter(EloRating.team_id.in_(team_ids)).group_by(EloRating.team_id).subquery()
+        
+        elo_map = {
+            row.team_id: row.rating
+            for row in db.session.query(EloRating).join(
+                subquery,
+                (EloRating.team_id == subquery.c.team_id) &
+                (EloRating.date == subquery.c.latest_date)
+            )
+        }
+        
+        opportunities = []
+        
+        for match in upcoming_matches:
+            home_elo = elo_map.get(match.home_team_id, 1000)
+            away_elo = elo_map.get(match.away_team_id, 1000)
+            
+            # Calculate Elo difference and determine which team is favored
+            elo_diff = abs(home_elo - away_elo)
+            favored_team = match.home_team if home_elo > away_elo else match.away_team
+            underdog_team = match.away_team if home_elo > away_elo else match.home_team
+            favored_elo = max(home_elo, away_elo)
+            underdog_elo = min(home_elo, away_elo)
+            
+            # Calculate win probability for favored team
+            from elo_utils import expected_result
+            win_probability = expected_result(favored_elo, underdog_elo)
+            
+            # Categorize based on Elo difference
+            category = None
+            confidence_level = None
+            
+            if 191 <= elo_diff <= 239:
+                category = "good_chance"
+                confidence_level = "Good Chance"
+            elif 250 <= elo_diff <= 399:
+                category = "great_chance" 
+                confidence_level = "Great Chance"
+            elif elo_diff >= 400:
+                category = "almost_certain"
+                confidence_level = "Almost Certain"
+            
+            # Only include matches that meet betting criteria
+            if category:
+                opportunities.append({
+                    "match_id": match.id,
+                    "date": match.date.isoformat(),
+                    "home_team": {
+                        "id": match.home_team.id,
+                        "name": match.home_team.name,
+                        "league": match.home_team.league,
+                        "elo": round(home_elo, 1)
+                    },
+                    "away_team": {
+                        "id": match.away_team.id,
+                        "name": match.away_team.name,
+                        "league": match.away_team.league,
+                        "elo": round(away_elo, 1)
+                    },
+                    "favored_team": {
+                        "id": favored_team.id,
+                        "name": favored_team.name,
+                        "elo": round(favored_elo, 1)
+                    },
+                    "underdog_team": {
+                        "id": underdog_team.id,
+                        "name": underdog_team.name,
+                        "elo": round(underdog_elo, 1)
+                    },
+                    "elo_difference": round(elo_diff, 1),
+                    "win_probability": round(win_probability * 100, 1),
+                    "category": category,
+                    "confidence_level": confidence_level,
+                    "betting_recommendation": f"{favored_team.name} has a {confidence_level.lower()} to win"
+                })
+        
+        # Sort by Elo difference (highest first) for best opportunities
+        opportunities.sort(key=lambda x: x["elo_difference"], reverse=True)
+        
+        return jsonify({
+            "opportunities": opportunities,
+            "total_count": len(opportunities),
+            "categories": {
+                "good_chance": len([o for o in opportunities if o["category"] == "good_chance"]),
+                "great_chance": len([o for o in opportunities if o["category"] == "great_chance"]),
+                "almost_certain": len([o for o in opportunities if o["category"] == "almost_certain"])
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     from apscheduler.schedulers.background import BackgroundScheduler

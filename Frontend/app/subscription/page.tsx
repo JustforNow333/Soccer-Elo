@@ -103,6 +103,14 @@ export default function SubscriptionPage() {
                   <Check className="h-5 w-5 text-green-500" />
                   <span>Upcoming matches with high-confidence predictions</span>
                 </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-green-500" />
+                  <span>Strategic betting insights with categorized opportunities</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Check className="h-5 w-5 text-green-500" />
+                  <span>Elo-based win probability analysis (75%+ accuracy)</span>
+                </div>
               </div>
             </CardContent>
           </Card>

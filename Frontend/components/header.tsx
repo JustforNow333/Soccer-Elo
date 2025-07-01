@@ -22,7 +22,10 @@ export function Header() {
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
           <Link href="/subscription" className="text-sm font-medium hover:text-primary transition-colors">
-            Strategic Insights
+            Subscribe
+          </Link>
+          <Link href="/strategic-betting" className="text-sm font-medium hover:text-primary transition-colors">
+            Betting Insights
           </Link>
         </nav>
 
@@ -63,7 +66,14 @@ export function Header() {
               className="block py-2 text-sm font-medium hover:text-primary transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
-              Strategic Insights
+              Subscribe
+            </Link>
+            <Link
+              href="/strategic-betting"
+              className="block py-2 text-sm font-medium hover:text-primary transition-colors"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Betting Insights
             </Link>
           </nav>
         </div>
