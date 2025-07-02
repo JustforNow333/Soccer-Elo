@@ -237,6 +237,10 @@ def create_checkout_session():
                 "email": email
             }
         )
+        
+        if not session:
+            return jsonify({"error": "Failed to create checkout session"}), 500
+            
         return jsonify({"url": session.url})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
