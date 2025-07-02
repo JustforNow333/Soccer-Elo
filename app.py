@@ -16,14 +16,19 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
-# Initialize Stripe with error handling
+# Initialize Stripe once at startup - set to None if not configured
 stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_CONFIGURED = False
+
 if stripe_secret_key:
     stripe.api_key = stripe_secret_key
+    STRIPE_CONFIGURED = True
     print("✓ Stripe initialized successfully")
 else:
+    stripe.api_key = None
     print("⚠️  WARNING: STRIPE_SECRET_KEY environment variable not set!")
     print("   Subscription features will not work until this is configured.")
+
 db.init_app(app)
 
 @app.route("/debug/teams/")
@@ -175,7 +180,7 @@ def health():
 def debug_config():
     """Debug endpoint to check configuration (remove in production!)"""
     return jsonify({
-        "stripe_configured": bool(stripe.api_key),
+        "stripe_configured": STRIPE_CONFIGURED,
         "database_url_set": bool(os.environ.get("DATABASE_URL")),
         "stripe_webhook_secret_set": bool(os.environ.get("STRIPE_WEBHOOK_SECRET")),
         "stripe_publishable_key_set": bool(os.environ.get("STRIPE_PUBLISHABLE_KEY")),
@@ -210,7 +215,7 @@ def create_checkout_session():
         return jsonify({"error": "Email is required"}), 400
 
     # Check if Stripe is properly configured
-    if not stripe.api_key:
+    if not STRIPE_CONFIGURED:
         return jsonify({"error": "Payment system not configured. Please contact support."}), 500
 
     try:
@@ -243,7 +248,7 @@ def create_checkout_session():
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
     # Check if Stripe is properly configured
-    if not stripe.api_key:
+    if not STRIPE_CONFIGURED:
         return jsonify({"error": "Payment system not configured"}), 500
 
     payload = request.data
