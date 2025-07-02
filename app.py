@@ -204,24 +204,43 @@ def debug_config():
 
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
-    data = request.get_json()
-    email = data.get("email")
-
-    if not email:
-        return jsonify({"error": "Email is required"}), 400
-
     try:
+        print("=== DEBUG: Starting create_checkout_session ===")
+        data = request.get_json()
+        print(f"DEBUG: Request data: {data}")
+        
+        email = data.get("email")
+        print(f"DEBUG: Email: {email}")
+
+        if not email:
+            print("DEBUG: No email provided")
+            return jsonify({"error": "Email is required"}), 400
+
+        print("DEBUG: Getting Stripe...")
         stripe = get_stripe()
+        print(f"DEBUG: Stripe object: {stripe}")
+        
         if not stripe:
+            print("DEBUG: Stripe not configured")
             return jsonify({"error": "Payment system not configured. Please contact support."}), 500
-            
+        
+        print("DEBUG: Checking database...")
+        print(f"DEBUG: db object: {db}")
+        print(f"DEBUG: db.session: {db.session}")
+        
         # Create or get existing user
+        print("DEBUG: Querying for user...")
         user = User.query.filter_by(email=email).first()
+        print(f"DEBUG: Found user: {user}")
+        
         if not user:
+            print("DEBUG: Creating new user...")
             user = User(email=email)
             db.session.add(user)
             db.session.commit()
+            print(f"DEBUG: Created user: {user}")
 
+        print("DEBUG: Creating Stripe checkout session...")
         session = stripe.checkout.Session.create(
             customer_email=email,
             payment_method_types=["card"],
@@ -237,12 +256,20 @@ def create_checkout_session():
                 "email": email
             }
         )
+        print(f"DEBUG: Created session: {session}")
         
         if not session:
+            print("DEBUG: Session creation failed")
             return jsonify({"error": "Failed to create checkout session"}), 500
-            
+        
+        print(f"DEBUG: Session URL: {session.url}")
         return jsonify({"url": session.url})
+        
     except Exception as e:
+        print(f"DEBUG: Exception occurred: {str(e)}")
+        print(f"DEBUG: Exception type: {type(e)}")
+        import traceback
+        print(f"DEBUG: Full traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 400
 
 @app.route("/api/stripe-webhook", methods=["POST"])
