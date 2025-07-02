@@ -17,13 +17,28 @@ app.config["SQLALCHEMY_ECHO"] = False
 
 # Initialize Stripe once at startup - set to None if not configured
 def get_stripe():
-    import stripe
-    key = os.environ.get("STRIPE_SECRET_KEY")
-    if not key:
-        print("❌ STRIPE_SECRET_KEY is missing!")
+    try:
+        import stripe
+        key = os.environ.get("STRIPE_SECRET_KEY")
+        if not key:
+            print("❌ STRIPE_SECRET_KEY is missing!")
+            print(f"Available env vars: {list(os.environ.keys())}")
+            return None
+        
+        # Validate the key format
+        if not key.startswith(('sk_test_', 'sk_live_')):
+            print(f"❌ Invalid STRIPE_SECRET_KEY format: {key[:10]}...")
+            return None
+            
+        stripe.api_key = key
+        print(f"✅ Stripe configured successfully with key: {key[:10]}...")
+        return stripe
+    except ImportError as e:
+        print(f"❌ Failed to import stripe: {e}")
         return None
-    stripe.api_key = key
-    return stripe
+    except Exception as e:
+        print(f"❌ Error configuring Stripe: {e}")
+        return None
 
 db.init_app(app)
 
@@ -201,6 +216,16 @@ def debug_config():
 
 
 # Set your secret key
+@app.route("/debug/env-check")
+def debug_env_check():
+    """Debug endpoint to check environment variables (REMOVE IN PRODUCTION!)"""
+    return jsonify({
+        "stripe_secret_key_exists": bool(os.environ.get("STRIPE_SECRET_KEY")),
+        "stripe_secret_key_length": len(os.environ.get("STRIPE_SECRET_KEY", "")),
+        "stripe_secret_key_starts_with": os.environ.get("STRIPE_SECRET_KEY", "")[:7] + "...",
+        "database_url_exists": bool(os.environ.get("DATABASE_URL")),
+        "all_env_vars": list(os.environ.keys())
+    })
 
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
@@ -222,44 +247,63 @@ def create_checkout_session():
         
         if not stripe:
             print("DEBUG: Stripe not configured")
-            return jsonify({"error": "Payment system not configured. Please contact support."}), 500
+            return jsonify({
+                "error": "Payment system not configured. Please contact support.",
+                "details": "Stripe secret key is missing or invalid"
+            }), 500
         
-        print("DEBUG: Checking database...")
-        print(f"DEBUG: db object: {db}")
-        print(f"DEBUG: db.session: {db.session}")
+        print("DEBUG: Checking database connection...")
+        try:
+            # Test database connection
+            db.session.execute('SELECT 1')
+            print("DEBUG: Database connection OK")
+        except Exception as db_error:
+            print(f"DEBUG: Database connection failed: {db_error}")
+            return jsonify({"error": "Database connection failed"}), 500
         
         # Create or get existing user
         print("DEBUG: Querying for user...")
-        user = User.query.filter_by(email=email).first()
-        print(f"DEBUG: Found user: {user}")
-        
-        if not user:
-            print("DEBUG: Creating new user...")
-            user = User(email=email)
-            db.session.add(user)
-            db.session.commit()
-            print(f"DEBUG: Created user: {user}")
+        try:
+            user = User.query.filter_by(email=email).first()
+            print(f"DEBUG: Found user: {user}")
+            
+            if not user:
+                print("DEBUG: Creating new user...")
+                user = User(email=email)
+                db.session.add(user)
+                db.session.commit()
+                print(f"DEBUG: Created user: {user}")
+        except Exception as user_error:
+            print(f"DEBUG: User creation/lookup failed: {user_error}")
+            return jsonify({"error": "Failed to process user data"}), 500
 
         print("DEBUG: Creating Stripe checkout session...")
-        session = stripe.checkout.Session.create(
-            customer_email=email,
-            payment_method_types=["card"],
-            line_items=[{
-                "price": "price_1RfE3RFQ0X76CRQWSNsdAb5Q",
-                "quantity": 1,
-            }],
-            mode="subscription",
-            success_url="https://soccer-elo-chi.vercel.app/success?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url="https://soccer-elo-chi.vercel.app/cancel",
-            metadata={
-                "user_id": str(user.id),
-                "email": email
-            }
-        )
-        print(f"DEBUG: Created session: {session}")
+        try:
+            session = stripe.checkout.Session.create(
+                customer_email=email,
+                payment_method_types=["card"],
+                line_items=[{
+                    "price": "price_1RfE3RFQ0X76CRQWSNsdAb5Q",
+                    "quantity": 1,
+                }],
+                mode="subscription",
+                success_url="https://soccer-elo-chi.vercel.app/success?session_id={CHECKOUT_SESSION_ID}",
+                cancel_url="https://soccer-elo-chi.vercel.app/cancel",
+                metadata={
+                    "user_id": str(user.id),
+                    "email": email
+                }
+            )
+            print(f"DEBUG: Created session: {session.id}")
+        except Exception as stripe_error:
+            print(f"DEBUG: Stripe session creation failed: {stripe_error}")
+            return jsonify({
+                "error": "Failed to create checkout session", 
+                "details": str(stripe_error)
+            }), 400
         
-        if not session:
-            print("DEBUG: Session creation failed")
+        if not session or not session.url:
+            print("DEBUG: Session creation failed - no URL")
             return jsonify({"error": "Failed to create checkout session"}), 500
         
         print(f"DEBUG: Session URL: {session.url}")
@@ -270,7 +314,10 @@ def create_checkout_session():
         print(f"DEBUG: Exception type: {type(e)}")
         import traceback
         print(f"DEBUG: Full traceback: {traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 400
+        return jsonify({
+            "error": "Internal server error", 
+            "details": str(e)
+        }), 500
 
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
