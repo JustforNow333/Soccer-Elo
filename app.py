@@ -231,9 +231,12 @@ def debug_env_check():
 def create_checkout_session():
     try:
         print("=== DEBUG: Starting create_checkout_session ===")
-        data = request.get_json()
-        print(f"DEBUG: Request data: {data}")
         
+        data = request.get_json()
+        if not data:
+            print("DEBUG: No JSON data received")
+            return jsonify({"error": "No data received"}), 400
+            
         email = data.get("email")
         print(f"DEBUG: Email: {email}")
 
@@ -243,81 +246,35 @@ def create_checkout_session():
 
         print("DEBUG: Getting Stripe...")
         stripe = get_stripe()
-        print(f"DEBUG: Stripe object: {stripe}")
         
         if not stripe:
             print("DEBUG: Stripe not configured")
-            return jsonify({
-                "error": "Payment system not configured. Please contact support.",
-                "details": "Stripe secret key is missing or invalid"
-            }), 500
+            return jsonify({"error": "Payment system not configured"}), 500
         
-        print("DEBUG: Checking database connection...")
-        try:
-            # Test database connection
-            db.session.execute('SELECT 1')
-            print("DEBUG: Database connection OK")
-        except Exception as db_error:
-            print(f"DEBUG: Database connection failed: {db_error}")
-            return jsonify({"error": "Database connection failed"}), 500
-        
-        # Create or get existing user
-        print("DEBUG: Querying for user...")
-        try:
-            user = User.query.filter_by(email=email).first()
-            print(f"DEBUG: Found user: {user}")
-            
-            if not user:
-                print("DEBUG: Creating new user...")
-                user = User(email=email)
-                db.session.add(user)
-                db.session.commit()
-                print(f"DEBUG: Created user: {user}")
-        except Exception as user_error:
-            print(f"DEBUG: User creation/lookup failed: {user_error}")
-            return jsonify({"error": "Failed to process user data"}), 500
-
         print("DEBUG: Creating Stripe checkout session...")
-        try:
-            session = stripe.checkout.Session.create(
-                customer_email=email,
-                payment_method_types=["card"],
-                line_items=[{
-                    "price": "price_1RfE3RFQ0X76CRQWSNsdAb5Q",
-                    "quantity": 1,
-                }],
-                mode="subscription",
-                success_url="https://soccer-elo-chi.vercel.app/success?session_id={CHECKOUT_SESSION_ID}",
-                cancel_url="https://soccer-elo-chi.vercel.app/cancel",
-                metadata={
-                    "user_id": str(user.id),
-                    "email": email
-                }
-            )
-            print(f"DEBUG: Created session: {session.id}")
-        except Exception as stripe_error:
-            print(f"DEBUG: Stripe session creation failed: {stripe_error}")
-            return jsonify({
-                "error": "Failed to create checkout session", 
-                "details": str(stripe_error)
-            }), 400
+        session = stripe.checkout.Session.create(
+            customer_email=email,
+            payment_method_types=["card"],
+            line_items=[{
+                "price": "price_1RfE3RFQ0X76CRQWSNsdAb5Q",
+                "quantity": 1,
+            }],
+            mode="subscription",
+            success_url="https://soccer-elo-chi.vercel.app/success?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url="https://soccer-elo-chi.vercel.app/cancel",
+            metadata={
+                "email": email
+            }
+        )
         
-        if not session or not session.url:
-            print("DEBUG: Session creation failed - no URL")
-            return jsonify({"error": "Failed to create checkout session"}), 500
-        
-        print(f"DEBUG: Session URL: {session.url}")
+        print(f"DEBUG: Session created successfully: {session.id}")
         return jsonify({"url": session.url})
         
     except Exception as e:
-        print(f"DEBUG: Exception occurred: {str(e)}")
-        print(f"DEBUG: Exception type: {type(e)}")
+        print(f"DEBUG: Exception: {str(e)}")
         import traceback
-        print(f"DEBUG: Full traceback: {traceback.format_exc()}")
-        return jsonify({
-            "error": "Internal server error", 
-            "details": str(e)
-        }), 500
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 400
 
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
