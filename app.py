@@ -5,7 +5,6 @@ from datetime import datetime
 from flask_cors import CORS
 import os
 from elo_utils import expected_result, update_elo, get_match_result
-import stripe
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -17,17 +16,14 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
 # Initialize Stripe once at startup - set to None if not configured
-stripe_secret_key = os.environ.get("STRIPE_SECRET_KEY")
-STRIPE_CONFIGURED = False
-
-if stripe_secret_key:
-    stripe.api_key = stripe_secret_key
-    STRIPE_CONFIGURED = True
-    print("✓ Stripe initialized successfully")
-else:
-    stripe.api_key = None
-    print("⚠️  WARNING: STRIPE_SECRET_KEY environment variable not set!")
-    print("   Subscription features will not work until this is configured.")
+def get_stripe():
+    import stripe
+    key = os.environ.get("STRIPE_SECRET_KEY")
+    if not key:
+        print("❌ STRIPE_SECRET_KEY is missing!")
+        return None
+    stripe.api_key = key
+    return stripe
 
 db.init_app(app)
 
@@ -180,7 +176,7 @@ def health():
 def debug_config():
     """Debug endpoint to check configuration (remove in production!)"""
     return jsonify({
-        "stripe_configured": STRIPE_CONFIGURED,
+        "stripe_configured": bool(os.environ.get("STRIPE_SECRET_KEY")),
         "database_url_set": bool(os.environ.get("DATABASE_URL")),
         "stripe_webhook_secret_set": bool(os.environ.get("STRIPE_WEBHOOK_SECRET")),
         "stripe_publishable_key_set": bool(os.environ.get("STRIPE_PUBLISHABLE_KEY")),
@@ -214,11 +210,11 @@ def create_checkout_session():
     if not email:
         return jsonify({"error": "Email is required"}), 400
 
-    # Check if Stripe is properly configured
-    if not STRIPE_CONFIGURED:
-        return jsonify({"error": "Payment system not configured. Please contact support."}), 500
-
     try:
+        stripe = get_stripe()
+        if not stripe:
+            return jsonify({"error": "Payment system not configured. Please contact support."}), 500
+            
         # Create or get existing user
         user = User.query.filter_by(email=email).first()
         if not user:
@@ -247,8 +243,9 @@ def create_checkout_session():
 
 @app.route("/api/stripe-webhook", methods=["POST"])
 def stripe_webhook():
-    # Check if Stripe is properly configured
-    if not STRIPE_CONFIGURED:
+    # Get stripe module first
+    stripe = get_stripe()
+    if not stripe:
         return jsonify({"error": "Payment system not configured"}), 500
 
     payload = request.data
