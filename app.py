@@ -16,28 +16,36 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
 # Initialize Stripe once at startup - set to None if not configured
-def get_stripe():
-    try:
-        import stripe
-        key = os.environ.get("STRIPE_SECRET_KEY")
-        if not key:
-            print("❌ STRIPE_SECRET_KEY is missing!")
-            print(f"Available env vars: {list(os.environ.keys())}")
-            return None
-        
-        # Validate the key format
-        if not key.startswith(('sk_test_', 'sk_live_')):
-            print(f"❌ Invalid STRIPE_SECRET_KEY format: {key[:10]}...")
+try:
+    import stripe
+    stripe_module = stripe
+    
+    def get_stripe():
+        try:
+            key = os.environ.get("STRIPE_SECRET_KEY")
+            if not key:
+                print("❌ STRIPE_SECRET_KEY is missing!")
+                print(f"Available env vars: {list(os.environ.keys())}")
+                return None
+            
+            # Validate the key format
+            if not key.startswith(('sk_test_', 'sk_live_')):
+                print(f"❌ Invalid STRIPE_SECRET_KEY format: {key[:10]}...")
+                return None
+                
+            stripe_module.api_key = key
+            print(f"✅ Stripe configured successfully with key: {key[:10]}...")
+            return stripe_module
+        except Exception as e:
+            print(f"❌ Error configuring Stripe: {e}")
             return None
             
-        stripe.api_key = key
-        print(f"✅ Stripe configured successfully with key: {key[:10]}...")
-        return stripe
-    except ImportError as e:
-        print(f"❌ Failed to import stripe: {e}")
-        return None
-    except Exception as e:
-        print(f"❌ Error configuring Stripe: {e}")
+except ImportError as e:
+    print(f"❌ Failed to import stripe: {e}")
+    stripe_module = None
+    
+    def get_stripe():
+        print("❌ Stripe module not available")
         return None
 
 db.init_app(app)
