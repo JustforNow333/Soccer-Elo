@@ -16,17 +16,20 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
 # Initialize Stripe once at startup - set to None if not configured
+print("=== IMPORTING STRIPE MODULE ===")
 try:
     import stripe
     stripe_module = stripe
-    print(f"DEBUG: Stripe module imported successfully: {stripe_module}")
-    print(f"DEBUG: Stripe module type: {type(stripe_module)}")
-    print(f"DEBUG: Has checkout attribute: {hasattr(stripe_module, 'checkout')}")
+    print(f"SUCCESS: Stripe module imported: {stripe_module}")
+    print(f"SUCCESS: Stripe module type: {type(stripe_module)}")
+    print(f"SUCCESS: Has checkout attribute: {hasattr(stripe_module, 'checkout')}")
     if hasattr(stripe_module, 'checkout'):
-        print(f"DEBUG: Checkout attribute: {stripe_module.checkout}")
-        print(f"DEBUG: Has Session attribute: {hasattr(stripe_module.checkout, 'Session')}")
+        print(f"SUCCESS: Checkout attribute: {stripe_module.checkout}")
+        print(f"SUCCESS: Has Session attribute: {hasattr(stripe_module.checkout, 'Session')}")
+    print("=== STRIPE MODULE IMPORTED SUCCESSFULLY ===")
     
     def get_stripe():
+        print("=== get_stripe() CALLED ===")
         try:
             print(f"DEBUG: get_stripe() called, stripe_module is: {stripe_module}")
             key = os.environ.get("STRIPE_SECRET_KEY")
@@ -42,13 +45,17 @@ try:
                 
             stripe_module.api_key = key
             print(f"✅ Stripe configured successfully with key: {key[:10]}...")
-            print(f"DEBUG: Returning stripe_module: {stripe_module}")
-            return stripe_module
+            print(f"DEBUG: About to return stripe_module: {stripe_module}")
+            result = stripe_module
+            print(f"DEBUG: Result variable: {result}")
+            return result
         except Exception as e:
             print(f"❌ Error configuring Stripe: {e}")
             import traceback
             print(f"DEBUG: Traceback: {traceback.format_exc()}")
             return None
+        finally:
+            print("=== get_stripe() FINISHED ===")
             
 except ImportError as e:
     print(f"❌ Failed to import stripe: {e}")
@@ -59,6 +66,28 @@ except ImportError as e:
         return None
 
 db.init_app(app)
+
+@app.before_request
+def log_request_info():
+    if request.path.startswith('/api/'):
+        print(f"=== INCOMING API REQUEST ===")
+        print(f"Path: {request.path}")
+        print(f"Method: {request.method}")
+        print(f"Headers: {dict(request.headers)}")
+        print(f"Origin: {request.headers.get('Origin', 'No Origin')}")
+        print(f"Content-Type: {request.content_type}")
+        print(f"Data: {request.data}")
+        print(f"=== END REQUEST INFO ===")
+
+@app.after_request
+def log_response_info(response):
+    if request.path.startswith('/api/'):
+        print(f"=== OUTGOING API RESPONSE ===")
+        print(f"Status: {response.status_code}")
+        print(f"Headers: {dict(response.headers)}")
+        print(f"Data: {response.data}")
+        print(f"=== END RESPONSE INFO ===")
+    return response
 
 @app.route("/debug/teams/")
 def debug_teams():
@@ -249,8 +278,13 @@ def debug_env_check():
 def create_checkout_session():
     try:
         print("=== DEBUG: Starting create_checkout_session ===")
+        print(f"DEBUG: Request method: {request.method}")
+        print(f"DEBUG: Request headers: {dict(request.headers)}")
+        print(f"DEBUG: Request content-type: {request.content_type}")
+        print(f"DEBUG: Request data: {request.data}")
         
         data = request.get_json()
+        print(f"DEBUG: Parsed JSON data: {data}")
         if not data:
             print("DEBUG: No JSON data received")
             return jsonify({"error": "No data received"}), 400
@@ -263,20 +297,22 @@ def create_checkout_session():
             return jsonify({"error": "Email is required"}), 400
 
         print("DEBUG: Getting Stripe...")
-        stripe = get_stripe()
-        print(f"DEBUG: Stripe returned: {stripe}")
-        print(f"DEBUG: Stripe type: {type(stripe)}")
+        stripe_client = get_stripe()
+        print(f"DEBUG: Stripe returned: {stripe_client}")
+        print(f"DEBUG: Stripe type: {type(stripe_client)}")
         
-        if not stripe:
+        if not stripe_client:
             print("DEBUG: Stripe not configured")
             return jsonify({"error": "Payment system not configured"}), 500
         
         print("DEBUG: Creating Stripe checkout session...")
+        print(f"DEBUG: About to call stripe_client.checkout.Session.create")
+        print(f"DEBUG: stripe_client.checkout: {stripe_client.checkout}")
         
         # Get frontend URL from environment variable
         frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
         
-        session = stripe.checkout.Session.create(
+        session = stripe_client.checkout.Session.create(
             customer_email=email,
             payment_method_types=["card"],
             line_items=[{
