@@ -19,9 +19,16 @@ app.config["SQLALCHEMY_ECHO"] = False
 try:
     import stripe
     stripe_module = stripe
+    print(f"DEBUG: Stripe module imported successfully: {stripe_module}")
+    print(f"DEBUG: Stripe module type: {type(stripe_module)}")
+    print(f"DEBUG: Has checkout attribute: {hasattr(stripe_module, 'checkout')}")
+    if hasattr(stripe_module, 'checkout'):
+        print(f"DEBUG: Checkout attribute: {stripe_module.checkout}")
+        print(f"DEBUG: Has Session attribute: {hasattr(stripe_module.checkout, 'Session')}")
     
     def get_stripe():
         try:
+            print(f"DEBUG: get_stripe() called, stripe_module is: {stripe_module}")
             key = os.environ.get("STRIPE_SECRET_KEY")
             if not key:
                 print("❌ STRIPE_SECRET_KEY is missing!")
@@ -35,9 +42,12 @@ try:
                 
             stripe_module.api_key = key
             print(f"✅ Stripe configured successfully with key: {key[:10]}...")
+            print(f"DEBUG: Returning stripe_module: {stripe_module}")
             return stripe_module
         except Exception as e:
             print(f"❌ Error configuring Stripe: {e}")
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")
             return None
             
 except ImportError as e:
@@ -254,12 +264,18 @@ def create_checkout_session():
 
         print("DEBUG: Getting Stripe...")
         stripe = get_stripe()
+        print(f"DEBUG: Stripe returned: {stripe}")
+        print(f"DEBUG: Stripe type: {type(stripe)}")
         
         if not stripe:
             print("DEBUG: Stripe not configured")
             return jsonify({"error": "Payment system not configured"}), 500
         
         print("DEBUG: Creating Stripe checkout session...")
+        
+        # Get frontend URL from environment variable
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+        
         session = stripe.checkout.Session.create(
             customer_email=email,
             payment_method_types=["card"],
@@ -268,8 +284,8 @@ def create_checkout_session():
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url="https://soccer-elo-chi.vercel.app/success?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url="https://soccer-elo-chi.vercel.app/cancel",
+            success_url=f"{frontend_url}/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{frontend_url}/cancel",
             metadata={
                 "email": email
             }

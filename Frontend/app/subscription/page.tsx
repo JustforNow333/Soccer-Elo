@@ -12,7 +12,9 @@ import { CreditCard, Crown, Check, AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 // Initialize Stripe with your publishable key
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "pk_test_51RfDycFQ0X76CRQWJT0cqNejHelfjrbBmaKpukedAOGEbuTr30xJz0HjxavpDHObLdk3H3d7qMQcm0KKHeskwmb9004SgWXXbO")
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY 
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null
 
 export default function SubscriptionPage() {
   const [email, setEmail] = useState("")
@@ -31,10 +33,23 @@ export default function SubscriptionPage() {
       return
     }
 
+    if (!stripePromise) {
+      toast({
+        title: "Configuration Error",
+        description: "Stripe is not properly configured. Please contact support.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setLoading(true)
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      if (!apiUrl) {
+        throw new Error("API URL not configured. Please contact support.")
+      }
+      
       const response = await fetch(`${apiUrl}/create-checkout-session`, {
         method: "POST",
         headers: {

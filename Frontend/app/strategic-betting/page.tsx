@@ -73,7 +73,10 @@ export default function StrategicBettingPage() {
     setLoading(true)
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      if (!apiUrl) {
+        throw new Error("API URL not configured. Please contact support.")
+      }
       
       // Check premium status first
       const premiumResponse = await fetch(`${apiUrl}/user/premium-status`, {
