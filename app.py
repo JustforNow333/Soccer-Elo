@@ -522,6 +522,12 @@ def get_strategic_betting_opportunities():
         if not relevant_fixtures:
             return jsonify({
                 "opportunities": [],
+                "total_count": 0,
+                "categories": {
+                    "good_chance": 0,
+                    "great_chance": 0,
+                    "almost_certain": 0
+                },
                 "message": "No upcoming fixtures found with Elo-rated teams"
             })
         
