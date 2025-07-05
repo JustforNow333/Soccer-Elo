@@ -154,3 +154,50 @@ class User(db.Model):
     def is_premium_active(self):
         """Check if user has an active premium subscription"""
         return self.subscription_status in ["active", "trialing"]
+
+
+class Fixture(db.Model):
+    __tablename__ = "fixtures"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    api_football_id = db.Column(db.Integer, nullable=False, unique=True)  # ID from API-Football
+    date = db.Column(db.DateTime, nullable=False)
+    home_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)  # Nullable if team not in our DB
+    away_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)  # Nullable if team not in our DB
+    home_team_name = db.Column(db.String(100), nullable=False)  # Store original name from API
+    away_team_name = db.Column(db.String(100), nullable=False)  # Store original name from API
+    league_name = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(50), nullable=False)  # NS (Not Started), LIVE, FT (Finished), etc.
+    venue = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
+
+    # Relationships
+    home_team = db.relationship("Team", foreign_keys=[home_team_id])
+    away_team = db.relationship("Team", foreign_keys=[away_team_id])
+
+    def __init__(self, **kwargs):
+        self.api_football_id = kwargs.get("api_football_id")
+        self.date = kwargs.get("date")
+        self.home_team_id = kwargs.get("home_team_id")
+        self.away_team_id = kwargs.get("away_team_id")
+        self.home_team_name = kwargs.get("home_team_name")
+        self.away_team_name = kwargs.get("away_team_name")
+        self.league_name = kwargs.get("league_name")
+        self.status = kwargs.get("status")
+        self.venue = kwargs.get("venue")
+
+    def serialize(self):
+        return {
+            "id": self.id,
+            "api_football_id": self.api_football_id,
+            "date": self.date.isoformat() if self.date else None,
+            "home_team": self.home_team.simple_serialize() if self.home_team else {"name": self.home_team_name},
+            "away_team": self.away_team.simple_serialize() if self.away_team else {"name": self.away_team_name},
+            "league_name": self.league_name,
+            "status": self.status,
+            "venue": self.venue
+        }
+
+    def has_elo_teams(self):
+        """Check if both teams have Elo ratings in our database"""
+        return self.home_team_id is not None and self.away_team_id is not None

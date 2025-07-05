@@ -1,10 +1,13 @@
 from flask import Flask, request, render_template, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from db import db, Team, Match, EloRating, User
-from datetime import datetime
+from db import db, Team, Match, EloRating, User, Fixture
+from datetime import datetime, timedelta
 from flask_cors import CORS
 import os
+import requests
+from sqlalchemy import or_, and_
 from elo_utils import expected_result, update_elo, get_match_result
+from fixture_import import fetch_next_48_hours_fixtures
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -506,21 +509,27 @@ def get_strategic_betting_opportunities():
         from sqlalchemy import func, and_
         from datetime import date, timedelta
         
-        # Get matches from today onwards (upcoming matches)
-        today = date.today()
-        upcoming_matches = Match.query.filter(Match.date >= today).order_by(Match.date.asc()).all()
+        # Get upcoming fixtures from API-Football data (more accurate than historical matches)
+        today = datetime.now().date()
+        upcoming_fixtures = Fixture.query.filter(
+            Fixture.date >= today,
+            Fixture.status == "NS"  # Not Started
+        ).order_by(Fixture.date.asc()).all()
         
-        if not upcoming_matches:
+        # Filter to only include fixtures with teams in our database (with Elo ratings)
+        relevant_fixtures = [f for f in upcoming_fixtures if f.has_elo_teams()]
+        
+        if not relevant_fixtures:
             return jsonify({
                 "opportunities": [],
-                "message": "No upcoming matches found"
+                "message": "No upcoming fixtures found with Elo-rated teams"
             })
         
-        # Get latest Elo ratings for all teams involved in upcoming matches
+        # Get latest Elo ratings for all teams involved in upcoming fixtures
         team_ids = set()
-        for match in upcoming_matches:
-            team_ids.add(match.home_team_id)
-            team_ids.add(match.away_team_id)
+        for fixture in relevant_fixtures:
+            team_ids.add(fixture.home_team_id)
+            team_ids.add(fixture.away_team_id)
         
         # Get latest Elo ratings in batch
         subquery = db.session.query(
@@ -539,14 +548,14 @@ def get_strategic_betting_opportunities():
         
         opportunities = []
         
-        for match in upcoming_matches:
-            home_elo = elo_map.get(match.home_team_id, 1000)
-            away_elo = elo_map.get(match.away_team_id, 1000)
+        for fixture in relevant_fixtures:
+            home_elo = elo_map.get(fixture.home_team_id, 1000)
+            away_elo = elo_map.get(fixture.away_team_id, 1000)
             
             # Calculate Elo difference and determine which team is favored
             elo_diff = abs(home_elo - away_elo)
-            favored_team = match.home_team if home_elo > away_elo else match.away_team
-            underdog_team = match.away_team if home_elo > away_elo else match.home_team
+            favored_team = fixture.home_team if home_elo > away_elo else fixture.away_team
+            underdog_team = fixture.away_team if home_elo > away_elo else fixture.home_team
             favored_elo = max(home_elo, away_elo)
             underdog_elo = min(home_elo, away_elo)
             
@@ -568,21 +577,24 @@ def get_strategic_betting_opportunities():
                 category = "almost_certain"
                 confidence_level = "Almost Certain"
             
-            # Only include matches that meet betting criteria
+            # Only include fixtures that meet betting criteria
             if category:
                 opportunities.append({
-                    "match_id": match.id,
-                    "date": match.date.isoformat(),
+                    "fixture_id": fixture.id,
+                    "api_fixture_id": fixture.api_football_id,
+                    "date": fixture.date.isoformat(),
+                    "league": fixture.league_name,
+                    "venue": fixture.venue,
                     "home_team": {
-                        "id": match.home_team.id,
-                        "name": match.home_team.name,
-                        "league": match.home_team.league,
+                        "id": fixture.home_team.id,
+                        "name": fixture.home_team.name,
+                        "league": fixture.home_team.league,
                         "elo": round(home_elo, 1)
                     },
                     "away_team": {
-                        "id": match.away_team.id,
-                        "name": match.away_team.name,
-                        "league": match.away_team.league,
+                        "id": fixture.away_team.id,
+                        "name": fixture.away_team.name,
+                        "league": fixture.away_team.league,
                         "elo": round(away_elo, 1)
                     },
                     "favored_team": {
@@ -612,7 +624,8 @@ def get_strategic_betting_opportunities():
                 "good_chance": len([o for o in opportunities if o["category"] == "good_chance"]),
                 "great_chance": len([o for o in opportunities if o["category"] == "great_chance"]),
                 "almost_certain": len([o for o in opportunities if o["category"] == "almost_certain"])
-            }
+            },
+            "message": f"Found {len(opportunities)} betting opportunities from {len(relevant_fixtures)} upcoming fixtures"
         })
         
     except Exception as e:
@@ -652,20 +665,54 @@ def create_test_user():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/fixtures", methods=["POST"])
+def get_fixtures():
+    """Get upcoming fixtures for premium users"""
+    data = request.get_json()
+    email = data.get("email")
+    
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    
+    # Check premium status
+    user = User.query.filter_by(email=email).first()
+    if not user or not user.is_premium_active():
+        return jsonify({"error": "Premium subscription required"}), 403
+    
+    try:
+        # Get fixtures from today onwards
+        today = datetime.now().date()
+        upcoming_fixtures = Fixture.query.filter(
+            Fixture.date >= today,
+            Fixture.status == "NS"  # Not Started
+        ).order_by(Fixture.date.asc()).all()
+        
+        # Filter to only include fixtures with teams in our database
+        relevant_fixtures = [f for f in upcoming_fixtures if f.has_elo_teams()]
+        
+        return jsonify({
+            "fixtures": [fixture.serialize() for fixture in relevant_fixtures],
+            "total_count": len(relevant_fixtures),
+            "message": f"Found {len(relevant_fixtures)} upcoming fixtures"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/manual-fixture-fetch", methods=["POST"])
+def manual_fixture_fetch():
+    """Manual endpoint to fetch fixtures (for testing)"""
+    try:
+        fetch_next_48_hours_fixtures()
+        return jsonify({"message": "Fixture fetch completed successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     from apscheduler.schedulers.background import BackgroundScheduler
     from import_data import import_matches_from_csv, generate_football_data_urls
 
-    def scheduled_fetch():
-        print("Running scheduled match import...")
-        urls = generate_football_data_urls(start_season=2024, end_season=2025, include_club_world_cup=True)
-        for url in urls:
-            import_matches_from_csv(url)
-        print("Finished scheduled fetch.")
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(scheduled_fetch, 'interval', minutes=5)
-    scheduler.start()
+    # Background scheduler removed - scheduled tasks now run in scheduled_import.py
 
     with app.app_context():
         db.create_all()
