@@ -359,14 +359,25 @@ def handle_checkout_session_completed(session):
         if customer_email:
             user = User.query.filter_by(email=customer_email).first()
             if user:
+                # Update existing user
                 user.stripe_customer_id = customer_id
                 user.stripe_subscription_id = subscription_id
                 user.subscription_status = "active"
                 user.subscription_start_date = datetime.utcnow()
                 db.session.commit()
-                print(f"Updated user {customer_email} with subscription {subscription_id}")
+                print(f"Updated existing user {customer_email} with subscription {subscription_id}")
             else:
-                print(f"User not found for email: {customer_email}")
+                # Create new user
+                new_user = User(
+                    email=customer_email,
+                    stripe_customer_id=customer_id,
+                    stripe_subscription_id=subscription_id,
+                    subscription_status="active",
+                    subscription_start_date=datetime.utcnow()
+                )
+                db.session.add(new_user)
+                db.session.commit()
+                print(f"Created new user {customer_email} with subscription {subscription_id}")
         else:
             print("No customer email in checkout session")
     except Exception as e:
@@ -603,6 +614,40 @@ def get_strategic_betting_opportunities():
                 "almost_certain": len([o for o in opportunities if o["category"] == "almost_certain"])
             }
         })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/create-test-user", methods=["POST"])
+def create_test_user():
+    """Temporary endpoint to create a test user (REMOVE IN PRODUCTION!)"""
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+        
+        # Check if user already exists
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({"message": f"User {email} already exists", "user": existing_user.serialize()}), 200
+        
+        # Create new test user with active subscription
+        new_user = User(
+            email=email,
+            stripe_customer_id="test_customer_id",
+            stripe_subscription_id="test_subscription_id",
+            subscription_status="active",
+            subscription_start_date=datetime.utcnow()
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        
+        return jsonify({
+            "message": f"Test user created successfully",
+            "user": new_user.serialize()
+        }), 201
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
