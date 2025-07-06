@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timedelta
 from sqlalchemy import and_
 from db import db, Team, Fixture
+from import_data import normalize_team_name
 
 def get_api_football_client():
     """Get API-Football client configuration"""
@@ -55,33 +56,44 @@ def fetch_fixtures_by_date_range(from_date, to_date):
 def match_team_to_database(team_name, league_name=None):
     """
     Match API-Football team name to our database team.
-    Uses fuzzy matching to handle name variations.
+    Uses the same normalization as import_data.py for consistent matching.
     """
-    # Direct match first
-    team = Team.query.filter_by(name=team_name).first()
+    # Normalize the API team name the same way as when teams were created
+    normalized_api_name = normalize_team_name(team_name)
+    
+    print(f"🔍 Matching team: '{team_name}' -> normalized: '{normalized_api_name}'")
+    
+    # Direct match with normalized name
+    team = Team.query.filter_by(name=normalized_api_name).first()
     if team:
+        print(f"✅ Direct match found: {team.name} (ID: {team.id})")
         return team
     
-    # Try case-insensitive match
-    team = Team.query.filter(Team.name.ilike(f"%{team_name}%")).first()
+    # Try case-insensitive match (backup for any edge cases)
+    team = Team.query.filter(Team.name.ilike(f"%{normalized_api_name}%")).first()
     if team:
+        print(f"✅ Case-insensitive match found: {team.name} (ID: {team.id})")
         return team
     
     # Try partial matches (handle common variations)
     # Remove common suffixes/prefixes that might differ
-    clean_name = team_name.replace(" FC", "").replace(" CF", "").replace("FC ", "").replace("CF ", "")
+    clean_name = normalized_api_name.replace(" fc", "").replace(" cf", "").replace("fc ", "").replace("cf ", "")
     team = Team.query.filter(Team.name.ilike(f"%{clean_name}%")).first()
     if team:
+        print(f"✅ Partial match found: {team.name} (ID: {team.id}) using clean_name: '{clean_name}'")
         return team
     
     # If league is provided, try to match within that league
     if league_name:
+        normalized_league = normalize_team_name(league_name)
         team = Team.query.filter(
-            and_(Team.name.ilike(f"%{clean_name}%"), Team.league.ilike(f"%{league_name}%"))
+            and_(Team.name.ilike(f"%{clean_name}%"), Team.league.ilike(f"%{normalized_league}%"))
         ).first()
         if team:
+            print(f"✅ League-specific match found: {team.name} (ID: {team.id}) in league: '{normalized_league}'")
             return team
     
+    print(f"❌ No match found for: '{team_name}' (normalized: '{normalized_api_name}')")
     return None
 
 def process_and_store_fixtures(api_fixtures):
@@ -91,6 +103,9 @@ def process_and_store_fixtures(api_fixtures):
     """
     stored_count = 0
     relevant_count = 0
+    no_match_count = 0
+    
+    print(f"🔄 Processing {len(api_fixtures)} fixtures from API Football...")
     
     for fixture_data in api_fixtures:
         try:
@@ -107,6 +122,8 @@ def process_and_store_fixtures(api_fixtures):
             home_team_name = teams_info.get("home", {}).get("name", "")
             away_team_name = teams_info.get("away", {}).get("name", "")
             league_name = league_info.get("name", "")
+            
+            print(f"\n📅 Processing fixture: {home_team_name} vs {away_team_name} ({league_name})")
             
             # Try to match teams to our database
             home_team = match_team_to_database(home_team_name, league_name)
@@ -127,6 +144,7 @@ def process_and_store_fixtures(api_fixtures):
                     existing_fixture.home_team_id = home_team.id if home_team else None
                     existing_fixture.away_team_id = away_team.id if away_team else None
                     existing_fixture.updated_at = datetime.utcnow()
+                    print(f"🔄 Updated existing fixture (ID: {existing_fixture.id})")
                 else:
                     # Create new fixture
                     new_fixture = Fixture(
@@ -142,6 +160,18 @@ def process_and_store_fixtures(api_fixtures):
                     )
                     db.session.add(new_fixture)
                     stored_count += 1
+                    print(f"✅ Added new fixture")
+                    
+                match_status = []
+                if home_team:
+                    match_status.append(f"Home: {home_team.name}")
+                if away_team:
+                    match_status.append(f"Away: {away_team.name}")
+                print(f"   Teams matched: {', '.join(match_status)}")
+                
+            else:
+                no_match_count += 1
+                print(f"❌ No team matches found - skipping fixture")
                 
         except Exception as e:
             print(f"❌ Error processing fixture: {str(e)}")
@@ -149,7 +179,11 @@ def process_and_store_fixtures(api_fixtures):
     
     try:
         db.session.commit()
-        print(f"✅ Stored {stored_count} new fixtures, {relevant_count} relevant fixtures total")
+        print(f"\n✅ Fixture import completed:")
+        print(f"   📊 Total fixtures from API: {len(api_fixtures)}")
+        print(f"   🎯 Relevant fixtures (with our teams): {relevant_count}")
+        print(f"   ➕ New fixtures stored: {stored_count}")
+        print(f"   ❌ No team matches: {no_match_count}")
     except Exception as e:
         print(f"❌ Error committing fixtures: {str(e)}")
         db.session.rollback()

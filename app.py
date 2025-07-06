@@ -76,6 +76,68 @@ def debug_teams():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/debug/team-names/")
+def debug_team_names():
+    """Show actual team names in database for debugging fixture matching"""
+    try:
+        teams = Team.query.limit(20).all()  # Limit to first 20 teams
+        return jsonify({
+            "count": len(teams),
+            "sample_teams": [
+                {
+                    "id": team.id,
+                    "name": team.name,
+                    "league": team.league
+                } for team in teams
+            ],
+            "message": "Sample team names from database (normalized format)"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/debug/fixtures/")
+def debug_fixtures():
+    """Check fixture status and team matching"""
+    try:
+        from sqlalchemy import func
+        
+        # Get fixture counts
+        total_fixtures = Fixture.query.count()
+        fixtures_with_both_teams = Fixture.query.filter(
+            Fixture.home_team_id.isnot(None),
+            Fixture.away_team_id.isnot(None)
+        ).count()
+        fixtures_with_no_teams = Fixture.query.filter(
+            Fixture.home_team_id.is_(None),
+            Fixture.away_team_id.is_(None)
+        ).count()
+        fixtures_with_one_team = total_fixtures - fixtures_with_both_teams - fixtures_with_no_teams
+        
+        # Get sample unmatched fixtures
+        unmatched_fixtures = Fixture.query.filter(
+            Fixture.home_team_id.is_(None),
+            Fixture.away_team_id.is_(None)
+        ).limit(5).all()
+        
+        return jsonify({
+            "total_fixtures": total_fixtures,
+            "fixtures_with_both_teams": fixtures_with_both_teams,
+            "fixtures_with_one_team": fixtures_with_one_team,
+            "fixtures_with_no_teams": fixtures_with_no_teams,
+            "sample_unmatched_fixtures": [
+                {
+                    "id": f.id,
+                    "date": f.date.isoformat(),
+                    "home_team_name": f.home_team_name,
+                    "away_team_name": f.away_team_name,
+                    "league_name": f.league_name
+                } for f in unmatched_fixtures
+            ],
+            "recommendation": "If you have many fixtures_with_no_teams, you should re-run the fixture import after deploying the fix."
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/wipe-db/", methods=["POST"])
 def wipe_db():
     from sqlalchemy import text
@@ -88,6 +150,20 @@ def wipe_db():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/clear-fixtures/", methods=["POST"])
+def clear_fixtures():
+    """Clear only the fixtures table (preserves teams and matches with Elo ratings)"""
+    try:
+        deleted_count = Fixture.query.count()
+        Fixture.query.delete()
+        db.session.commit()
+        return jsonify({
+            "status": "Fixtures cleared successfully",
+            "deleted_count": deleted_count
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/create-tables/")
 def create_tables():
@@ -723,3 +799,5 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(host="0.0.0.0",  port=int(os.environ.get("PORT", 5000)))
+
+
