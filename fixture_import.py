@@ -18,37 +18,62 @@ def get_api_football_client():
         }
     }
 
-def fetch_fixtures_by_date_range(from_date, to_date):
+def fetch_fixtures_by_league(league_id, from_date, to_date):
     client = get_api_football_client()
     if not client:
         return []
 
     url = f"{client['base_url']}/fixtures"
     params = {
+        "league": str(league_id),
+        "season": str(datetime.now().year),
         "from": from_date.strftime("%Y-%m-%d"),
         "to": to_date.strftime("%Y-%m-%d"),
-        "season": str(datetime.now().year),
         "timezone": "UTC"
     }
 
     try:
-        print(f"🔄 Fetching fixtures from {from_date} to {to_date}", flush=True)
+        print(f"🔄 Fetching fixtures for league {league_id} from {from_date} to {to_date}", flush=True)
         response = requests.get(url, headers=client["headers"], params=params, timeout=30)
-
-        print(f"🔍 Raw API response (first 1000 chars): {response.text[:1000]}", flush=True)
 
         if response.status_code == 200:
             data = response.json()
             fixtures = data.get("response", [])
-            print(f"✅ Fetched {len(fixtures)} fixtures", flush=True)
+            print(f"✅ Fetched {len(fixtures)} fixtures for league {league_id}", flush=True)
             return fixtures
         else:
-            print(f"❌ API-Football error: {response.status_code} - {response.text}", flush=True)
+            print(f"❌ API-Football error for league {league_id}: {response.status_code} - {response.text}", flush=True)
             return []
 
     except Exception as e:
-        print(f"❌ Error fetching fixtures: {str(e)}", flush=True)
+        print(f"❌ Error fetching fixtures for league {league_id}: {str(e)}", flush=True)
         return []
+
+def fetch_fixtures_by_date_range(from_date, to_date):
+    # Major European league IDs from API-Football
+    major_leagues = {
+        39: "Premier League",
+        140: "La Liga", 
+        78: "Bundesliga",
+        135: "Serie A",
+        61: "Ligue 1",
+        94: "Primeira Liga",
+        88: "Eredivisie",
+        203: "Süper Lig",
+        179: "Scottish Premier League",
+        144: "Belgian Pro League",
+        2: "UEFA Champions League",
+        3: "UEFA Europa League"
+    }
+    
+    all_fixtures = []
+    
+    for league_id, league_name in major_leagues.items():
+        fixtures = fetch_fixtures_by_league(league_id, from_date, to_date)
+        all_fixtures.extend(fixtures)
+    
+    print(f"✅ Total fixtures fetched across all leagues: {len(all_fixtures)}", flush=True)
+    return all_fixtures
 
 def match_team_to_database(team_name, league_name=None):
     team = Team.query.filter_by(name=team_name).first()
