@@ -27,6 +27,7 @@ def fetch_fixtures_by_date_range(from_date, to_date):
     params = {
         "from": from_date.strftime("%Y-%m-%d"),
         "to": to_date.strftime("%Y-%m-%d"),
+        "season": datetime.now().year,
         "timezone": "UTC"
     }
 
