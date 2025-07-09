@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { TrendingUp, Target, Crown, Calendar, Users, AlertCircle, Shield } from "lucide-react"
+import { TrendingUp, Target, Crown, Calendar, Users, AlertCircle, Shield, Settings, AlertTriangle, X } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface BettingOpportunity {
@@ -58,6 +58,9 @@ export default function StrategicBettingPage() {
   const [bettingData, setBettingData] = useState<BettingData | null>(null)
   const [loading, setLoading] = useState(false)
   const [hasAccess, setHasAccess] = useState(false)
+  const [showSubscriptionManagement, setShowSubscriptionManagement] = useState(false)
+  const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null)
+  const [cancelLoading, setCancelLoading] = useState(false)
   const { toast } = useToast()
 
   const checkPremiumAndLoadData = async () => {
@@ -156,6 +159,85 @@ export default function StrategicBettingPage() {
         return <Crown className="h-4 w-4" />
       default:
         return null
+    }
+  }
+
+  const getSubscriptionStatus = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      if (!apiUrl) {
+        throw new Error("API URL not configured")
+      }
+
+      const response = await fetch(`${apiUrl}/subscription-status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to get subscription status")
+      }
+
+      setSubscriptionStatus(data)
+      setShowSubscriptionManagement(true)
+    } catch (error) {
+      console.error("Error getting subscription status:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to get subscription status",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const cancelSubscription = async () => {
+    if (!confirm("Are you sure you want to cancel your subscription? You'll lose access to premium features at the end of your current billing period.")) {
+      return
+    }
+
+    setCancelLoading(true)
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      if (!apiUrl) {
+        throw new Error("API URL not configured")
+      }
+
+      const response = await fetch(`${apiUrl}/cancel-subscription`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to cancel subscription")
+      }
+
+      toast({
+        title: "Subscription Canceled",
+        description: "Your subscription has been canceled. You'll continue to have access until the end of your current billing period.",
+      })
+
+      // Refresh subscription status
+      await getSubscriptionStatus()
+    } catch (error) {
+      console.error("Error canceling subscription:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to cancel subscription",
+        variant: "destructive",
+      })
+    } finally {
+      setCancelLoading(false)
     }
   }
 
@@ -269,6 +351,95 @@ export default function StrategicBettingPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Subscription Management */}
+            <Card className="mb-8">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    Subscription Management
+                  </CardTitle>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={getSubscriptionStatus}
+                  >
+                    <Settings className="h-4 w-4 mr-2" />
+                    Manage Subscription
+                  </Button>
+                </div>
+              </CardHeader>
+              {showSubscriptionManagement && subscriptionStatus && (
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                      <div>
+                        <p className="font-medium">Subscription Status</p>
+                        <p className="text-sm text-muted-foreground">
+                          Current status: <span className="font-medium capitalize">{subscriptionStatus.user.subscription_status}</span>
+                        </p>
+                        {subscriptionStatus.user.subscription_start_date && (
+                          <p className="text-sm text-muted-foreground">
+                            Started: {new Date(subscriptionStatus.user.subscription_start_date).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <Badge variant={subscriptionStatus.user.subscription_status === 'active' ? 'default' : 'secondary'}>
+                          {subscriptionStatus.user.subscription_status === 'active' ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                    </div>
+                    
+                    {subscriptionStatus.user.subscription_status === 'active' && (
+                      <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription>
+                          <div className="space-y-2">
+                            <p>Want to cancel your subscription?</p>
+                            <Button 
+                              variant="destructive" 
+                              size="sm"
+                              onClick={cancelSubscription}
+                              disabled={cancelLoading}
+                            >
+                              {cancelLoading ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                  Canceling...
+                                </>
+                              ) : (
+                                <>
+                                  <X className="h-4 w-4 mr-2" />
+                                  Cancel Subscription
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    
+                    {subscriptionStatus.user.subscription_status === 'canceled' && (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          <div className="space-y-2">
+                            <p>Your subscription has been canceled.</p>
+                            {subscriptionStatus.user.subscription_end_date && (
+                              <p className="text-sm">
+                                Access will end on: {new Date(subscriptionStatus.user.subscription_end_date).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                </CardContent>
+              )}
+            </Card>
 
             {/* Betting Opportunities */}
             {bettingData.opportunities.length > 0 ? (

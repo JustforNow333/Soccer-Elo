@@ -713,6 +713,102 @@ def get_strategic_betting_opportunities():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/cancel-subscription", methods=["POST"])
+def cancel_subscription():
+    """Cancel a user's subscription"""
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+        
+        # Find the user
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Check if user has an active subscription
+        if not user.stripe_subscription_id:
+            return jsonify({"error": "No active subscription found"}), 400
+        
+        if user.subscription_status in ["canceled", "inactive"]:
+            return jsonify({"error": "Subscription is already canceled or inactive"}), 400
+        
+        # Get Stripe client
+        stripe_client = get_stripe()
+        if not stripe_client:
+            return jsonify({"error": "Payment system not configured"}), 500
+        
+        # Cancel subscription in Stripe
+        try:
+            canceled_subscription = stripe_client.Subscription.cancel(
+                user.stripe_subscription_id
+            )
+            
+            # Update user in database
+            user.subscription_status = "canceled"
+            user.subscription_end_date = datetime.utcnow()
+            db.session.commit()
+            
+            return jsonify({
+                "message": "Subscription canceled successfully",
+                "subscription": {
+                    "id": canceled_subscription.id,
+                    "status": canceled_subscription.status,
+                    "canceled_at": canceled_subscription.canceled_at,
+                    "current_period_end": canceled_subscription.current_period_end
+                }
+            }), 200
+            
+        except Exception as stripe_error:
+            print(f"Stripe cancellation error: {str(stripe_error)}")
+            return jsonify({"error": f"Failed to cancel subscription: {str(stripe_error)}"}), 500
+        
+    except Exception as e:
+        print(f"Cancel subscription error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/subscription-status", methods=["POST"])
+def get_subscription_status():
+    """Get detailed subscription status for a user"""
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+        
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Get additional info from Stripe if available
+        subscription_details = None
+        if user.stripe_subscription_id:
+            stripe_client = get_stripe()
+            if stripe_client:
+                try:
+                    subscription = stripe_client.Subscription.retrieve(user.stripe_subscription_id)
+                    subscription_details = {
+                        "id": subscription.id,
+                        "status": subscription.status,
+                        "current_period_start": subscription.current_period_start,
+                        "current_period_end": subscription.current_period_end,
+                        "canceled_at": subscription.canceled_at,
+                        "cancel_at_period_end": subscription.cancel_at_period_end
+                    }
+                except Exception as e:
+                    print(f"Error retrieving subscription from Stripe: {e}")
+        
+        return jsonify({
+            "user": user.serialize(),
+            "subscription_details": subscription_details
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/create-test-user", methods=["POST"])
 def create_test_user():
     """Temporary endpoint to create a test user (REMOVE IN PRODUCTION!)"""

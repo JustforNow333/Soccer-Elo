@@ -179,10 +179,10 @@ export default function SubscriptionPage() {
                 </Button>
               </form>
 
-              <div className="mt-6 text-center text-sm text-muted-foreground">
-                <p>Secure payment processed by Stripe</p>
-                <p className="mt-1">Cancel anytime from your account settings</p>
-              </div>
+                              <div className="mt-6 text-center text-sm text-muted-foreground">
+                  <p>Secure payment processed by Stripe</p>
+                  <p className="mt-1">Cancel anytime from the Strategic Betting page</p>
+                </div>
             </CardContent>
           </Card>
         </div>
@@ -196,7 +196,7 @@ export default function SubscriptionPage() {
             <div>
               <h4 className="font-semibold mb-2">Can I cancel anytime?</h4>
               <p className="text-muted-foreground">
-                Yes, you can cancel your subscription at any time. Your access will continue until the end of your current billing period.
+                Yes, you can cancel your subscription at any time from the Strategic Betting page. Your access will continue until the end of your current billing period.
               </p>
             </div>
             <div>
