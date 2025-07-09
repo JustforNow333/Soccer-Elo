@@ -8,6 +8,7 @@ class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(100), nullable=False)
     league = db.Column(db.String(100), nullable=False)
+    api_football_id = db.Column(db.Integer, nullable=True, unique=True)  # API-Football team ID
     home_matches = db.relationship("Match",
                                    back_populates="home_team",
                                    foreign_keys="Match.home_team_id",
@@ -23,6 +24,7 @@ class Team(db.Model):
     def __init__(self, **kwargs):
         self.name = kwargs.get("name")
         self.league = kwargs.get("league")
+        self.api_football_id = kwargs.get("api_football_id")
 
     def serialize(self):
         try:

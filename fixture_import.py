@@ -161,8 +161,9 @@ def process_and_store_fixtures(api_fixtures):
         print(f"❌ Error committing fixtures: {str(e)}", flush=True)
         db.session.rollback()
 
-def fetch_next_48_hours_fixtures():
-    print("🔄 Starting fixture fetch for next 7 days...", flush=True)
+def fetch_upcoming_week_fixtures():
+    """Fetch upcoming fixtures for the next week"""
+    print("🔄 Starting fixture fetch for next week...", flush=True)
 
     today = datetime.now().date()
     end_date = today + timedelta(days=7)
@@ -171,6 +172,12 @@ def fetch_next_48_hours_fixtures():
 
     if fixtures:
         process_and_store_fixtures(fixtures)
-        print(f"✅ Fixture fetch completed", flush=True)
+        print(f"✅ Fixture fetch completed for next week", flush=True)
     else:
         print("❌ No fixtures fetched", flush=True)
+
+# Keep the old function name for backward compatibility
+def fetch_next_48_hours_fixtures():
+    """Legacy function - now fetches next week's fixtures"""
+    print("⚠️  fetch_next_48_hours_fixtures is deprecated, use fetch_upcoming_week_fixtures", flush=True)
+    fetch_upcoming_week_fixtures()
