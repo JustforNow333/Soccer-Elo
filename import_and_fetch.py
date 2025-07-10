@@ -2,12 +2,14 @@ import os
 import sys
 import argparse
 from datetime import datetime
+import json
 print("🟢 STARTED import_and_fetch.py", flush=True)
 from db import db
 from app import app
 from import_data import import_matches_from_csv, generate_football_data_urls
 from fixture_import import fetch_next_48_hours_fixtures
-from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.blocking import BlockingScheduler\
+
 
 # Import the new API-Football system
 try:
@@ -375,6 +377,105 @@ def main():
     
     # Run the scheduler
     run_scheduler(args.mode)
+def get_top_100_teams(api_importer):
+    """Fetch and return the top 100 teams by popularity using the API importer."""
+    teams = api_importer.fetch_all_teams()  # You must implement this in your importer
+    # Sort teams by popularity (you must define how to measure this)
+    teams_sorted = sorted(teams, key=lambda t: t['popularity'], reverse=True)
+    return [team['id'] for team in teams_sorted[:100]]
+
+def save_top_100_teams(team_ids):
+    with open(TOP_100_TEAMS_FILE, "w") as f:
+        json.dump(team_ids, f)
+
+def load_top_100_teams():
+    if not os.path.exists(TOP_100_TEAMS_FILE):
+        return None
+    with open(TOP_100_TEAMS_FILE, "r") as f:
+        return json.load(f)
+
+def import_top_100_teams_once():
+    """Import all available data for the top 100 teams by popularity and save their IDs."""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available, skipping...", flush=True)
+        return
+
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set, skipping API import...", flush=True)
+        return
+
+    print("🚀 Importing all data for top 100 teams by popularity...", flush=True)
+    with app.app_context():
+        try:
+            migrate_database()
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=0.5
+            )
+            top_100_team_ids = get_top_100_teams(importer)
+            save_top_100_teams(top_100_team_ids)
+            importer.run_import(team_ids=top_100_team_ids)
+            print("✅ Top 100 teams import completed successfully", flush=True)
+        except Exception as e:
+            print(f"❌ Top 100 teams import failed: {str(e)}", flush=True)
+
+def update_top_100_teams():
+    """Update data for the same top 100 teams as at startup."""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available, skipping...", flush=True)
+        return
+
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set, skipping API update...", flush=True)
+        return
+
+    team_ids = load_top_100_teams()
+    if not team_ids:
+        print("❌ No top 100 teams found. Run the startup import first.", flush=True)
+        return
+
+    print("🔄 Updating data for the same top 100 teams by popularity...", flush=True)
+    with app.app_context():
+        try:
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=0.3
+            )
+            importer.run_import(team_ids=team_ids)
+            print("✅ Top 100 teams update completed successfully", flush=True)
+        except Exception as e:
+            print(f"❌ Top 100 teams update failed: {str(e)}", flush=True)
+
+def run_scheduler_top_100():
+    """Run the scheduler to update top 100 teams every 5 minutes."""
+    scheduler = BlockingScheduler()
+    scheduler.add_job(update_top_100_teams, 'interval', minutes=5, id='top_100_teams_update')
+    print("📅 Starting scheduler for top 100 teams (every 5 minutes)...", flush=True)
+    try:
+        scheduler.start()
+    except KeyboardInterrupt:
+        print("🛑 Scheduler stopped by user", flush=True)
+        scheduler.shutdown()
+
+def main():
+    parser = argparse.ArgumentParser(description="Import and update top 100 teams")
+    parser.add_argument("--startup-import", action="store_true", help="Import top 100 teams before scheduling")
+    args = parser.parse_args()
+
+    with app.app_context():
+        db.create_all()
+        print("✅ All tables created (if not exist)", flush=True)
+        if args.startup_import:
+            import_top_100_teams_once()
+
+    run_scheduler_top_100()
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
