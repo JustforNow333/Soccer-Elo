@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 from datetime import datetime
+print("🟢 STARTED import_and_fetch.py", flush=True)
 from db import db
 from app import app
 from import_data import import_matches_from_csv, generate_football_data_urls
@@ -14,12 +15,12 @@ try:
     from migrate_db import migrate_database
     API_IMPORT_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️  API import system not available: {e}")
+    print(f"⚠️  API import system not available: {e}", flush=True)
     API_IMPORT_AVAILABLE = False
 
 def scheduled_fetch():
     """Scheduled CSV-based import for recent seasons"""
-    print("Running scheduled match import (CSV fetch)...")
+    print("Running scheduled match import (CSV fetch)...", flush=True)
     urls = generate_football_data_urls(
         start_season=2024,
         end_season=2025,
@@ -29,30 +30,30 @@ def scheduled_fetch():
         try:
             import_matches_from_csv(url)
         except Exception as e:
-            print(f"Error in scheduled import {url}: {e}")
-    print("Scheduled CSV fetch complete.")
+            print(f"Error in scheduled import {url}: {e}", flush=True)
+    print("Scheduled CSV fetch complete.", flush=True)
 
 def scheduled_fixture_fetch():
     """Scheduled function to fetch fixtures from API-Football"""
-    print("Running scheduled fixture fetch...")
+    print("Running scheduled fixture fetch...", flush=True)
     with app.app_context():
         from fixture_import import fetch_upcoming_week_fixtures
         fetch_upcoming_week_fixtures()
-    print("Finished scheduled fixture fetch.")
+    print("Finished scheduled fixture fetch.", flush=True)
 
 
 def api_import_full():
     """Full API import for comprehensive data (weekly)"""
     if not API_IMPORT_AVAILABLE:
-        print("❌ API import system not available, skipping...")
+        print("❌ API import system not available, skipping...", flush=True)
         return
     
     api_key = os.environ.get("API_FOOTBALL_KEY")
     if not api_key:
-        print("❌ API_FOOTBALL_KEY not set, skipping API import...")
+        print("❌ API_FOOTBALL_KEY not set, skipping API import...", flush=True)
         return
     
-    print("🚀 Running full API-Football import (weekly)...")
+    print("🚀 Running full API-Football import (weekly)...", flush=True)
     
     with app.app_context():
         try:
@@ -72,24 +73,24 @@ def api_import_full():
                 max_teams_per_league=None  # All teams
             )
             
-            print("✅ Full API import completed successfully")
+            print("✅ Full API import completed successfully", flush=True)
             
         except Exception as e:
-            print(f"❌ API import failed: {str(e)}")
+            print(f"❌ API import failed: {str(e)}", flush=True)
 
 
 def api_import_updates():
     """Quick API import for recent updates (daily)"""
     if not API_IMPORT_AVAILABLE:
-        print("❌ API import system not available, skipping...")
+        print("❌ API import system not available, skipping...", flush=True)
         return
     
     api_key = os.environ.get("API_FOOTBALL_KEY")
     if not api_key:
-        print("❌ API_FOOTBALL_KEY not set, skipping API import...")
+        print("❌ API_FOOTBALL_KEY not set, skipping API import...", flush=True)
         return
     
-    print("🔄 Running API-Football updates (daily)...")
+    print("🔄 Running API-Football updates (daily)...", flush=True)
     
     with app.app_context():
         try:
@@ -106,24 +107,24 @@ def api_import_updates():
                 max_teams_per_league=None
             )
             
-            print("✅ API updates completed successfully")
+            print("✅ API updates completed successfully", flush=True)
             
         except Exception as e:
-            print(f"❌ API updates failed: {str(e)}")
+            print(f"❌ API updates failed: {str(e)}", flush=True)
 
 
 def api_frequent_season_update():
     """Frequent season update - optimized for 5-minute intervals"""
     if not API_IMPORT_AVAILABLE:
-        print("❌ API import system not available, skipping...")
+        print("❌ API import system not available, skipping...", flush=True)
         return
     
     api_key = os.environ.get("API_FOOTBALL_KEY")
     if not api_key:
-        print("❌ API_FOOTBALL_KEY not set, skipping frequent update...")
+        print("❌ API_FOOTBALL_KEY not set, skipping frequent update...", flush=True)
         return
     
-    print("⚡ Running frequent season update (5-minute interval)...")
+    print("⚡ Running frequent season update (5-minute interval)...", flush=True)
     
     with app.app_context():
         try:
@@ -137,23 +138,23 @@ def api_frequent_season_update():
             # Run frequent season update
             importer.run_frequent_season_update(season=2024)
             
-            print("✅ Frequent season update completed successfully")
+            print("✅ Frequent season update completed successfully", flush=True)
             
         except Exception as e:
-            print(f"❌ Frequent season update failed: {str(e)}")
+            print(f"❌ Frequent season update failed: {str(e)}", flush=True)
 
 def api_import_test():
     """Test API import with minimal data"""
     if not API_IMPORT_AVAILABLE:
-        print("❌ API import system not available")
+        print("❌ API import system not available", flush=True)
         return False
     
     api_key = os.environ.get("API_FOOTBALL_KEY")
     if not api_key:
-        print("❌ API_FOOTBALL_KEY not set")
+        print("❌ API_FOOTBALL_KEY not set", flush=True)
         return False
     
-    print("🧪 Running test API import...")
+    print("🧪 Running test API import...", flush=True)
     
     with app.app_context():
         try:
@@ -171,35 +172,35 @@ def api_import_test():
                 max_teams_per_league=5
             )
             
-            print("✅ Test import completed successfully")
+            print("✅ Test import completed successfully", flush=True)
             return True
             
         except Exception as e:
-            print(f"❌ Test import failed: {str(e)}")
+            print(f"❌ Test import failed: {str(e)}", flush=True)
             return False
 
 
 def import_all_once_enhanced():
     """Enhanced startup import that can use both CSV and API"""
-    print("🚀 Enhanced startup import...")
+    print("🚀 Enhanced startup import...", flush=True)
     
     # Option 1: Try API import first (if available and configured)
     if API_IMPORT_AVAILABLE and os.environ.get("API_FOOTBALL_KEY"):
-        print("🔄 Attempting API-based import...")
+        print("🔄 Attempting API-based import...", flush=True)
         if api_import_test():
-            print("✅ API import successful, skipping CSV import")
+            print("✅ API import successful, skipping CSV import", flush=True)
             return
         else:
-            print("⚠️  API import failed, falling back to CSV import...")
+            print("⚠️  API import failed, falling back to CSV import...", flush=True)
     
     # Option 2: Fallback to CSV import
-    print("🔄 Running CSV-based import...")
+    print("🔄 Running CSV-based import...", flush=True)
     import_all_once()
 
 
 def import_all_once():
     """Original CSV-based import (kept as fallback)"""
-    print("Importing all matches ONCE at startup from CSV, including Club World Cup...")
+    print("Importing all matches ONCE at startup from CSV, including Club World Cup...", flush=True)
     urls = generate_football_data_urls(
         start_season=1993,
         end_season=2025,
@@ -209,8 +210,8 @@ def import_all_once():
         try:
             import_matches_from_csv(url)
         except Exception as e:
-            print(f"Error importing {url}: {e}")
-    print("Initial CSV import complete.")
+            print(f"Error importing {url}: {e}", flush=True)
+    print("Initial CSV import complete.", flush=True)
 
 def run_scheduler(mode="enhanced"):
     """Run the scheduler with different import strategies"""
@@ -218,7 +219,7 @@ def run_scheduler(mode="enhanced"):
     scheduler = BlockingScheduler()
     
     if mode == "api-only":
-        print("🚀 API-only mode: Using API-Football for all imports")
+        print("🚀 API-only mode: Using API-Football for all imports", flush=True)
         
         # Full API import weekly (Sundays at 2 AM UTC)
         scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
@@ -230,7 +231,7 @@ def run_scheduler(mode="enhanced"):
         scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
         
     elif mode == "csv-only":
-        print("📁 CSV-only mode: Using CSV imports only")
+        print("📁 CSV-only mode: Using CSV imports only", flush=True)
         
         # Historical match data import (every 5 minutes)
         scheduler.add_job(scheduled_fetch, 'interval', minutes=5, id='csv_import_frequent')
@@ -239,7 +240,7 @@ def run_scheduler(mode="enhanced"):
         scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
         
     elif mode == "enhanced":
-        print("🔄 Enhanced mode: API + CSV hybrid approach")
+        print("🔄 Enhanced mode: API + CSV hybrid approach", flush=True)
         
         # Full API import weekly (Sundays at 2 AM UTC)
         scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
@@ -254,7 +255,7 @@ def run_scheduler(mode="enhanced"):
         scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
         
     elif mode == "live":
-        print("⚡ Live mode: Frequent updates for current season with daily fixtures")
+        print("⚡ Live mode: Frequent updates for current season with daily fixtures", flush=True)
         
         # Frequent season updates every 5 minutes for live scores
         scheduler.add_job(api_frequent_season_update, 'interval', minutes=5, id='frequent_season_update')
@@ -266,18 +267,18 @@ def run_scheduler(mode="enhanced"):
         scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
         
     else:
-        print(f"❌ Unknown mode: {mode}")
+        print(f"❌ Unknown mode: {mode}", flush=True)
         return
     
-    print(f"📅 Starting scheduler in {mode} mode...")
-    print("📊 Scheduled jobs:")
+    print(f"📅 Starting scheduler in {mode} mode...", flush=True)
+    print("📊 Scheduled jobs:", flush=True)
     for job in scheduler.get_jobs():
-        print(f"   - {job.name}: {job.trigger}")
+        print(f"   - {job.name}: {job.trigger}", flush=True)
     
     try:
         scheduler.start()
     except KeyboardInterrupt:
-        print("🛑 Scheduler stopped by user")
+        print("🛑 Scheduler stopped by user", flush=True)
         scheduler.shutdown()
 
 
@@ -303,73 +304,73 @@ def main():
     # Make sure all tables are created
     with app.app_context():
         db.create_all()
-        print("✅ All tables created (if not exist)")
+        print("✅ All tables created (if not exist)", flush=True)
         
         # Handle test modes
         if args.test_api:
-            print("🧪 Testing API import...")
+            print("🧪 Testing API import...", flush=True)
             if api_import_test():
-                print("✅ API import test successful!")
+                print("✅ API import test successful!", flush=True)
             else:
-                print("❌ API import test failed!")
+                print("❌ API import test failed!", flush=True)
             return
             
         if args.test_csv:
-            print("🧪 Testing CSV import...")
+            print("🧪 Testing CSV import...", flush=True)
             try:
                 import_all_once()
-                print("✅ CSV import test successful!")
+                print("✅ CSV import test successful!", flush=True)
             except Exception as e:
-                print(f"❌ CSV import test failed: {e}")
+                print(f"❌ CSV import test failed: {e}", flush=True)
             return
             
         if args.test_frequent:
-            print("🧪 Testing frequent season update...")
+            print("🧪 Testing frequent season update...", flush=True)
             try:
                 api_frequent_season_update()
-                print("✅ Frequent season update test successful!")
+                print("✅ Frequent season update test successful!", flush=True)
             except Exception as e:
-                print(f"❌ Frequent season update test failed: {e}")
+                print(f"❌ Frequent season update test failed: {e}", flush=True)
             return
         
         # Run startup import if requested
         if args.startup_import:
-            print("🚀 Running startup import...")
+            print("🚀 Running startup import...", flush=True)
             if args.mode == "api-only":
                 api_import_test()
             elif args.mode == "csv-only":
                 import_all_once()
             elif args.mode == "live":
-                print("⚡ Running initial frequent season update...")
+                print("⚡ Running initial frequent season update...", flush=True)
                 api_frequent_season_update()
             else:  # enhanced
                 import_all_once_enhanced()
     
     # Handle dry run
     if args.dry_run:
-        print(f"🔍 DRY RUN: Would start scheduler in {args.mode} mode")
+        print(f"🔍 DRY RUN: Would start scheduler in {args.mode} mode", flush=True)
         
         # Show what would be scheduled
         if args.mode == "api-only":
-            print("📅 Would schedule:")
-            print("   - Full API import: Sundays at 2 AM UTC")
-            print("   - API updates: Daily at 6 AM UTC") 
-            print("   - Fixture fetch: Daily at 8 AM UTC")
+            print("📅 Would schedule:", flush=True)
+            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
+            print("   - API updates: Daily at 6 AM UTC", flush=True) 
+            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
         elif args.mode == "csv-only":
-            print("📅 Would schedule:")
-            print("   - CSV import: Every 5 minutes")
-            print("   - Fixture fetch: Daily at 8 AM UTC")
+            print("📅 Would schedule:", flush=True)
+            print("   - CSV import: Every 5 minutes", flush=True)
+            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
         elif args.mode == "live":
-            print("📅 Would schedule:")
-            print("   - Frequent season updates: Every 5 minutes (2024-2025 season)")
-            print("   - Weekly fixture fetch: Daily at 8 AM UTC")
-            print("   - Full API import: Sundays at 2 AM UTC")
+            print("📅 Would schedule:", flush=True)
+            print("   - Frequent season updates: Every 5 minutes (2024-2025 season)", flush=True)
+            print("   - Weekly fixture fetch: Daily at 8 AM UTC", flush=True)
+            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
         else:  # enhanced
-            print("📅 Would schedule:")
-            print("   - Full API import: Sundays at 2 AM UTC")
-            print("   - API updates: Every 3 days at 4 AM UTC")
-            print("   - CSV import: Daily at 5 AM UTC")
-            print("   - Fixture fetch: Daily at 8 AM UTC")
+            print("📅 Would schedule:", flush=True)
+            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
+            print("   - API updates: Every 3 days at 4 AM UTC", flush=True)
+            print("   - CSV import: Daily at 5 AM UTC", flush=True)
+            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
         return
     
     # Run the scheduler
