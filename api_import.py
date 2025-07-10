@@ -593,33 +593,92 @@ class APIFootballImporter:
         self.stats["fixtures_fetched"] += len(fixtures)
         return fixtures
     
-    def run_import(self, max_leagues: int = 100, max_teams_per_league: int = None):
+    def fetch_all_teams(self) -> List[dict]:
+        """Fetch all teams from all leagues and return with popularity ranking"""
+        print("🔄 Fetching all teams from top leagues...")
+        
+        # Get top leagues first
+        leagues = self.get_top_leagues(50)  # Get top 50 leagues
+        all_teams = []
+        
+        for league in leagues:
+            league_id = league["id"]
+            league_name = league["name"]
+            
+            print(f"🔄 Fetching teams from {league_name}...")
+            teams = self.get_league_teams(league_id, self.current_season)
+            
+            # Add popularity score based on league importance and team data
+            for team in teams:
+                # Simple popularity calculation based on league type and country
+                popularity = 0
+                
+                # League importance scoring
+                major_leagues = {39, 140, 78, 135, 61, 94, 88}  # Premier, La Liga, Bundesliga, etc.
+                if league_id in major_leagues:
+                    popularity += 100
+                elif league.get("type") == "league":
+                    popularity += 50
+                else:
+                    popularity += 25
+                
+                # Country importance
+                major_countries = ["England", "Spain", "Germany", "Italy", "France"]
+                if league.get("country") in major_countries:
+                    popularity += 50
+                
+                # Add some randomness based on team name length (rough proxy for fame)
+                popularity += max(0, 20 - len(team.get("name", "")))
+                
+                team["popularity"] = popularity
+                team["league_name"] = league_name
+                
+            all_teams.extend(teams)
+        
+        print(f"✅ Fetched {len(all_teams)} teams total")
+        return all_teams
+    
+    def run_import(self, max_leagues: int = 100, max_teams_per_league: int = None, team_ids: List[int] = None):
         """Main import process"""
-        print(f"🚀 Starting API-Football import (max {max_leagues} leagues)")
-        print(f"📊 Current season: {self.current_season}")
-        print(f"⏱️  Request delay: {self.request_delay}s")
-        print(f"📈 Request limit: {self.max_requests_per_day}/day")
         
-        start_time = datetime.now()
-        
-        # Get top leagues
-        leagues = self.get_top_leagues(max_leagues)
-        
-        # Process each league
-        for i, league in enumerate(leagues, 1):
-            if self.requests_made >= self.max_requests_per_day:
-                print(f"❌ Stopping: Daily request limit reached")
-                break
+        if team_ids:
+            # Import specific teams by IDs
+            print(f"🚀 Starting API-Football import for {len(team_ids)} specific teams")
+            print(f"📊 Current season: {self.current_season}")
+            print(f"⏱️  Request delay: {self.request_delay}s")
             
-            print(f"\n📍 Progress: {i}/{len(leagues)} leagues")
-            self.import_league_data(league, max_teams_per_league)
+            start_time = datetime.now()
             
-            remaining_requests = self.max_requests_per_day - self.requests_made
-            print(f"📊 Requests remaining: {remaining_requests}")
+            # Import data for specific teams
+            self.import_teams_by_ids(team_ids)
             
-            if remaining_requests < 50:  # Safety buffer
-                print(f"⚠️  Approaching request limit, stopping early")
-                break
+        else:
+            # Original import process for leagues
+            print(f"🚀 Starting API-Football import (max {max_leagues} leagues)")
+            print(f"📊 Current season: {self.current_season}")
+            print(f"⏱️  Request delay: {self.request_delay}s")
+            print(f"📈 Request limit: {self.max_requests_per_day}/day")
+            
+            start_time = datetime.now()
+            
+            # Get top leagues
+            leagues = self.get_top_leagues(max_leagues)
+            
+            # Process each league
+            for i, league in enumerate(leagues, 1):
+                if self.requests_made >= self.max_requests_per_day:
+                    print(f"❌ Stopping: Daily request limit reached")
+                    break
+                
+                print(f"\n📍 Progress: {i}/{len(leagues)} leagues")
+                self.import_league_data(league, max_teams_per_league)
+                
+                remaining_requests = self.max_requests_per_day - self.requests_made
+                print(f"📊 Requests remaining: {remaining_requests}")
+                
+                if remaining_requests < 50:  # Safety buffer
+                    print(f"⚠️  Approaching request limit, stopping early")
+                    break
         
         # Final statistics
         end_time = datetime.now()
@@ -632,6 +691,63 @@ class APIFootballImporter:
         
         estimated_remaining = self.max_requests_per_day - self.requests_made
         print(f"   estimated_remaining_requests: {estimated_remaining}")
+    
+    def import_teams_by_ids(self, team_ids: List[int]):
+        """Import data for specific teams by their API-Football IDs"""
+        print(f"🔄 Importing data for {len(team_ids)} specific teams...")
+        
+        for team_id in team_ids:
+            if self.requests_made >= self.max_requests_per_day - 10:  # Safety buffer
+                print(f"❌ Approaching request limit, stopping team import early")
+                break
+                
+            print(f"🔄 Processing team ID {team_id}...")
+            
+            # Get team info
+            team_data = self.get_team_info(team_id)
+            if not team_data:
+                continue
+                
+            # Get fixtures for this team
+            fixtures = self.get_team_fixtures(team_id, self.current_season)
+            
+            # Process fixtures
+            for fixture_data in fixtures:
+                self.process_fixture(fixture_data, team_data.get("league_name", "Unknown"))
+            
+            # Commit after each team to avoid memory issues
+            if len(self.fixtures_batch) >= 50:
+                self.commit_batched_data()
+        
+        # Final commit
+        self.commit_batched_data()
+    
+    def get_team_info(self, team_id: int) -> Optional[dict]:
+        """Get team information by API-Football team ID"""
+        params = {"id": str(team_id)}
+        
+        data = self._make_request("teams", params)
+        if not data:
+            return None
+        
+        teams = data.get("response", [])
+        if not teams:
+            return None
+            
+        team_data = teams[0]
+        team = team_data.get("team", {})
+        venue = team_data.get("venue", {})
+        
+        return {
+            "id": team.get("id"),
+            "name": team.get("name"),
+            "code": team.get("code"),
+            "country": team.get("country"),
+            "founded": team.get("founded"),
+            "logo": team.get("logo"),
+            "venue": venue.get("name"),
+            "league_name": "Unknown"  # Will be updated when processing fixtures
+        }
 
 
 def main():

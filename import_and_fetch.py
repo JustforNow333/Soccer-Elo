@@ -11,6 +11,9 @@ from fixture_import import fetch_next_48_hours_fixtures
 from apscheduler.schedulers.blocking import BlockingScheduler\
 
 
+# Define the file path for storing top 100 teams
+TOP_100_TEAMS_FILE = "top_100_teams.json"
+
 # Import the new API-Football system
 try:
     from api_import import APIFootballImporter
@@ -461,7 +464,8 @@ def run_scheduler_top_100():
         print("🛑 Scheduler stopped by user", flush=True)
         scheduler.shutdown()
 
-def main():
+def main_top_100():
+    """Main function for top 100 teams import and scheduling"""
     parser = argparse.ArgumentParser(description="Import and update top 100 teams")
     parser.add_argument("--startup-import", action="store_true", help="Import top 100 teams before scheduling")
     args = parser.parse_args()
@@ -475,8 +479,8 @@ def main():
     run_scheduler_top_100()
 
 if __name__ == "__main__":
-    main()
-
-
-if __name__ == "__main__":
-    main()
+    # Check if we should run the top 100 teams version or the enhanced version
+    if len(sys.argv) > 1 and "--top-100" in sys.argv:
+        main_top_100()
+    else:
+        main()
