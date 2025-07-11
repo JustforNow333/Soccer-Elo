@@ -638,6 +638,251 @@ class APIFootballImporter:
         print(f"✅ Fetched {len(all_teams)} teams total")
         return all_teams
     
+    def get_team_ids_from_names(self, team_names: List[str]) -> List[int]:
+        """Search for teams by name and return their API-Football IDs"""
+        print(f"🔍 Searching for {len(team_names)} teams by name...")
+        
+        found_teams = []
+        team_ids = []
+        not_found = []
+        
+        for i, team_name in enumerate(team_names, 1):
+            if self.requests_made >= self.max_requests_per_day - 100:  # Increased buffer for team search
+                print(f"❌ Approaching request limit, stopping team search early at {i-1}/{len(team_names)}")
+                break
+                
+            print(f"🔍 [{i}/{len(team_names)}] Searching for: {team_name}")
+            
+            # Search for team by name
+            team_data = self.search_team_by_name(team_name)
+            if team_data:
+                found_teams.append(team_data)
+                team_ids.append(team_data['id'])
+                print(f"✅ Found: {team_data['name']} (ID: {team_data['id']}) from {team_data.get('country', 'Unknown')}")
+            else:
+                not_found.append(team_name)
+                print(f"❌ Not found: {team_name}")
+                
+            # Add small delay to avoid rate limiting
+            if i % 10 == 0:
+                print(f"📊 Progress: {len(team_ids)} found, {len(not_found)} not found, {self.requests_made} API calls used")
+        
+        print(f"\n🎯 Search Results:")
+        print(f"   ✅ Successfully found: {len(team_ids)} teams")
+        print(f"   ❌ Not found: {len(not_found)} teams")
+        print(f"   📊 API calls used: {self.requests_made}")
+        
+        if not_found:
+            print(f"\n⚠️  Teams not found:")
+            for team in not_found:
+                print(f"   - {team}")
+            print(f"\nTip: These teams might have different names in API-Football or may not be available.")
+        
+        return team_ids
+    
+    def search_team_by_name(self, team_name: str) -> Optional[dict]:
+        """Search for a single team by name using multiple strategies"""
+        
+        # Strategy 1: Direct search
+        team_data = self._search_team_direct(team_name)
+        if team_data:
+            return team_data
+        
+        # Strategy 2: Search with name variations
+        variations = self._get_team_name_variations(team_name)
+        if variations:
+            for variation in variations[:5]:  # Limit to first 5 variations to save API calls
+                team_data = self._search_team_direct(variation)
+                if team_data:
+                    return team_data
+        
+        # Strategy 3: Search by country if team name suggests it
+        country_data = self._extract_country_from_team_name(team_name)
+        if country_data:
+            team_data = self._search_team_by_country(team_name, country_data)
+            if team_data:
+                return team_data
+        
+        return None
+    
+    def _search_team_direct(self, search_term: str) -> Optional[dict]:
+        """Direct search using the search parameter"""
+        params = {"search": search_term}
+        
+        data = self._make_request("teams", params)
+        if not data:
+            return None
+        
+        teams = data.get("response", [])
+        if not teams:
+            return None
+        
+        # Look for exact or best match
+        for team_data in teams:
+            team = team_data.get("team", {})
+            team_name = team.get("name", "")
+            
+            # Check for exact match or very close match
+            if (search_term.lower() in team_name.lower() or 
+                team_name.lower() in search_term.lower() or
+                self._names_match_closely(search_term, team_name)):
+                
+                return {
+                    "id": team.get("id"),
+                    "name": team.get("name"),
+                    "code": team.get("code"),
+                    "country": team.get("country"),
+                    "founded": team.get("founded"),
+                    "logo": team.get("logo")
+                }
+        
+        return None
+    
+    def _get_team_name_variations(self, team_name: str) -> List[str]:
+        """Generate variations of team names to improve search"""
+        variations = []
+        
+        # Remove common prefixes/suffixes
+        variations.extend([
+            team_name.replace("FC ", "").replace(" FC", ""),
+            team_name.replace("CF ", "").replace(" CF", ""),
+            team_name.replace("AC ", "").replace(" AC", ""),
+            team_name.replace("SC ", "").replace(" SC", ""),
+            team_name.replace("AS ", "").replace(" AS", ""),
+            team_name.replace("SSC ", "").replace(" SSC", ""),
+            team_name.replace("RC ", "").replace(" RC", ""),
+            team_name.replace("Club ", ""),
+            team_name.replace("Sporting ", ""),
+            team_name.replace("Real ", ""),
+            team_name.replace("Atlético ", "").replace("Atletico ", ""),
+        ])
+        
+        # Add FC/CF variations
+        if "FC" not in team_name and "CF" not in team_name:
+            variations.extend([
+                f"FC {team_name}",
+                f"{team_name} FC",
+                f"CF {team_name}",
+                f"{team_name} CF"
+            ])
+        
+        # Special cases for known name variations
+        name_mappings = {
+            "Inter Miami": ["Club Internacional de Fútbol Miami", "Inter Miami CF"],
+            "Paris Saint-Germain": ["PSG", "Paris SG"],
+            "Manchester United": ["Man United", "MUFC"],
+            "Manchester City": ["Man City", "MCFC"],
+            "Tottenham Hotspur": ["Tottenham", "Spurs"],
+            "Newcastle United": ["Newcastle"],
+            "Leicester City": ["Leicester"],
+            "Brighton & Hove Albion": ["Brighton"],
+            "Wolverhampton Wanderers": ["Wolves"],
+            "Crystal Palace": ["Palace"],
+            "West Ham United": ["West Ham"],
+            "Aston Villa": ["Villa"],
+            "Borussia Dortmund": ["BVB", "Dortmund"],
+            "Bayern Munich": ["FC Bayern München", "Bayern München"],
+            "RB Leipzig": ["Red Bull Leipzig"],
+            "Eintracht Frankfurt": ["Frankfurt"],
+            "Bayer Leverkusen": ["Leverkusen"],
+            "Borussia Mönchengladbach": ["Gladbach", "BMG"],
+            "1. FC Köln": ["FC Koln", "Koln"],
+            "VfB Stuttgart": ["Stuttgart"],
+            "Werder Bremen": ["Bremen"],
+            "Hamburger SV": ["Hamburg", "HSV"],
+            "Al-Nassr": ["Al Nassr"],
+            "Al-Hilal": ["Al Hilal"],
+            "Al-Ahly": ["Al Ahly"],
+            "Al-Ittihad Club": ["Al Ittihad"],
+            "Al-Ahli": ["Al Ahli"],
+        }
+        
+        if team_name in name_mappings:
+            variations.extend(name_mappings[team_name])
+        
+        # Remove duplicates and empty strings
+        variations = list(set([v.strip() for v in variations if v.strip() and v.strip() != team_name]))
+        
+        return variations
+    
+    def _names_match_closely(self, name1: str, name2: str) -> bool:
+        """Check if two team names match closely"""
+        name1_clean = self._clean_team_name(name1)
+        name2_clean = self._clean_team_name(name2)
+        
+        # Check for substantial overlap
+        words1 = set(name1_clean.split())
+        words2 = set(name2_clean.split())
+        
+        if len(words1) == 0 or len(words2) == 0:
+            return False
+        
+        # Calculate similarity
+        intersection = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        
+        # Consider it a match if 70% or more words overlap
+        similarity = intersection / union if union > 0 else 0
+        return similarity >= 0.7
+    
+    def _clean_team_name(self, name: str) -> str:
+        """Clean team name for comparison"""
+        import re
+        # Remove common club terms and special characters
+        name = re.sub(r'\b(FC|CF|AC|SC|AS|SSC|RC|Club|Real|Sporting)\b', '', name, flags=re.IGNORECASE)
+        name = re.sub(r'[^\w\s]', '', name)  # Remove special characters
+        return name.lower().strip()
+    
+    def _extract_country_from_team_name(self, team_name: str) -> Optional[str]:
+        """Extract country information from team name patterns"""
+        # This is a basic implementation - could be expanded
+        country_hints = {
+            "United": "England",
+            "City": "England", 
+            "Madrid": "Spain",
+            "Barcelona": "Spain",
+            "Milan": "Italy",
+            "Munich": "Germany",
+            "Dortmund": "Germany",
+            "Al-": "Saudi Arabia",
+            "Inter Miami": "USA",
+            "LAFC": "USA",
+            "LA Galaxy": "USA",
+        }
+        
+        for hint, country in country_hints.items():
+            if hint in team_name:
+                return country
+        
+        return None
+    
+    def _search_team_by_country(self, team_name: str, country: str) -> Optional[dict]:
+        """Search for team within a specific country"""
+        params = {"country": country}
+        
+        data = self._make_request("teams", params)
+        if not data:
+            return None
+        
+        teams = data.get("response", [])
+        
+        # Look for the team within this country's teams
+        for team_data in teams:
+            team = team_data.get("team", {})
+            api_team_name = team.get("name", "")
+            
+            if self._names_match_closely(team_name, api_team_name):
+                return {
+                    "id": team.get("id"),
+                    "name": team.get("name"),
+                    "code": team.get("code"),
+                    "country": team.get("country"),
+                    "founded": team.get("founded"),
+                    "logo": team.get("logo")
+                }
+        
+        return None
+    
     def run_import(self, max_leagues: int = 100, max_teams_per_league: int = None, team_ids: List[int] = None):
         """Main import process"""
         

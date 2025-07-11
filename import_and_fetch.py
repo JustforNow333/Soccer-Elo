@@ -197,18 +197,21 @@ def import_top_250_teams_initial():
                 request_delay=0.4  # Slightly conservative for large import
             )
             
-            # Get top 250 teams by popularity
-            print("🔄 Fetching top 250 teams by popularity...")
-            all_teams = importer.fetch_all_teams()
-            teams_sorted = sorted(all_teams, key=lambda t: t['popularity'], reverse=True)
-            top_250_teams = teams_sorted[:250]
+            # Use predefined list of top teams instead of auto-discovery
+            print("🔄 Using predefined list of top teams...")
+            
+            # Get team IDs for our predefined list
+            team_ids = importer.get_team_ids_from_names(get_predefined_team_list())
+            
+            if not team_ids:
+                print("❌ Could not find any teams from predefined list")
+                return False
             
             # Save team IDs for future reference
-            team_ids = [team['id'] for team in top_250_teams]
             save_top_250_teams(team_ids)
             
-            print(f"✅ Selected top 250 teams")
-            print(f"📊 Sample teams: {[t['name'] for t in top_250_teams[:5]]}")
+            print(f"✅ Found {len(team_ids)} teams from predefined list")
+            print(f"📊 Ready to import historical data for these teams")
             
             # Import historical data from 2000 onwards for these teams
             seasons_to_import = list(range(2000, 2025))  # 2000 to 2024
@@ -319,6 +322,57 @@ def load_top_250_teams():
         return None
     with open(TOP_250_TEAMS_FILE, "r") as f:
         return json.load(f)
+
+def get_predefined_team_list():
+    """Return the predefined list of top teams"""
+    return [
+        "Real Madrid", "FC Barcelona", "Manchester United", "Paris Saint-Germain", "Manchester City",
+        "Juventus", "Liverpool", "Chelsea", "Bayern Munich", "Arsenal", "Tottenham Hotspur",
+        "Atlético Madrid", "AC Milan", "Inter Milan", "Flamengo", "Al-Nassr", "Borussia Dortmund",
+        "Al-Ahly", "Galatasaray", "AS Roma", "Corinthians", "Fenerbahçe", "Inter Miami", "Al-Hilal",
+        "Persib Bandung", "Club América", "Boca Juniors", "River Plate", "Ajax", "Leicester City",
+        "Santos FC", "Sevilla FC", "SE Palmeiras", "São Paulo FC", "Real Betis", "Beşiktaş",
+        "Olympique Marseille", "AS Monaco", "Real Sociedad", "Chivas Guadalajara", "SSC Napoli",
+        "West Ham United", "Aston Villa", "Newcastle United", "Zamalek SC", "Valencia CF",
+        "Bayer Leverkusen", "Cádiz CF", "Al-Ittihad Club", "Athletic Club", "Celta Vigo",
+        "Everton FC", "CR Vasco da Gama", "Raja Casablanca", "Persija Jakarta", "Al-Ahli",
+        "SL Benfica", "FC Porto", "Grêmio", "Simba SC", "Sporting CP", "Kaizer Chiefs",
+        "Cruz Azul", "Pumas UNAM", "Orlando Pirates", "Johor Darul Ta'zim", "Independiente",
+        "Racing Club", "Atlético Nacional", "Millonarios", "Persepolis", "Esteghlal",
+        "Tigres UANL", "Monterrey", "Celtic", "Rangers", "Mamelodi Sundowns", "Pyramids FC",
+        "Wydad Casablanca", "San Lorenzo", "SS Lazio", "Eintracht Frankfurt", "Crystal Palace",
+        "Wolverhampton Wanderers", "Brighton & Hove Albion", "Fulham", "Leeds United",
+        "Southampton", "Burnley", "Watford", "Norwich City", "Sheffield United", "Stoke City",
+        "Sunderland", "West Bromwich Albion", "Middlesbrough", "Nottingham Forest",
+        "PSV Eindhoven", "Feyenoord", "Olympiacos", "Colo-Colo", "Universidad de Chile",
+        "Peñarol", "Nacional", "Olimpia", "Cerro Porteño", "América de Cali", "Deportivo Cali",
+        "Independiente Santa Fe", "LDU Quito", "Barcelona SC", "Emelec", "Alianza Lima",
+        "Universitario", "Sporting Cristal", "Bolívar", "The Strongest", "Zenit St. Petersburg",
+        "Spartak Moscow", "CSKA Moscow", "Lokomotiv Moscow", "Dynamo Moscow", "Panathinaikos",
+        "AEK Athens", "PAOK", "Shakhtar Donetsk", "Dynamo Kyiv", "Legia Warsaw", "Lech Poznań",
+        "Wisła Kraków", "Dinamo Zagreb", "Hajduk Split", "Red Star Belgrade", "Partizan Belgrade",
+        "Red Bull Salzburg", "Rapid Wien", "Austria Wien", "BSC Young Boys", "FC Basel",
+        "FC Copenhagen", "Brøndby IF", "Rosenborg", "Molde", "Bodø/Glimt", "Malmö FF", "AIK",
+        "IFK Göteborg", "Club Brugge", "Anderlecht", "Standard Liège", "KRC Genk",
+        "Urawa Red Diamonds", "Kashima Antlers", "Vissel Kobe", "Yokohama F. Marinos",
+        "Gamba Osaka", "Jeonbuk Hyundai Motors", "Ulsan HD FC", "FC Seoul", "Suwon Samsung Bluewings",
+        "Pohang Steelers", "Guangzhou FC", "Shanghai Port", "Beijing Guoan", "Shandong Taishan",
+        "Buriram United", "Muangthong United", "Kerala Blasters", "Mohun Bagan SG", "East Bengal",
+        "Al-Sadd", "Al-Duhail", "Al-Ain", "Shabab Al-Ahli", "Al-Jazira", "Espérance de Tunis",
+        "Club Africain", "Étoile du Sahel", "CS Sfaxien", "AS FAR", "USM Alger", "MC Alger",
+        "JS Kabylie", "Enyimba", "Kano Pillars", "Enugu Rangers", "Asante Kotoko", "Hearts of Oak",
+        "TP Mazembe", "AS Vita Club", "Horoya AC", "Coton Sport", "ASEC Mimosas", "Gor Mahia",
+        "Young Africans", "Azam FC", "LAFC", "LA Galaxy", "Atlanta United FC", "Seattle Sounders FC",
+        "New York City FC", "Austin FC", "D.C. United", "Toronto FC", "Vancouver Whitecaps FC",
+        "CF Montréal", "Pachuca", "Toluca", "Santos Laguna", "León", "Atlas", "Saprissa",
+        "Alajuelense", "Olimpia", "Motagua", "Sydney FC", "Melbourne Victory", "Western Sydney Wanderers",
+        "Melbourne City", "Brisbane Roar", "Adelaide United", "Perth Glory", "Auckland FC",
+        "SC Braga", "Atalanta", "Fiorentina", "Torino", "Bologna", "Sampdoria", "Genoa",
+        "VfB Stuttgart", "Werder Bremen", "Hamburger SV", "Schalke 04", "Hertha BSC", "1. FC Köln",
+        "Borussia Mönchengladbach", "RB Leipzig", "Villarreal", "Real Valladolid", "Espanyol",
+        "Deportivo La Coruña", "Real Zaragoza", "LOSC Lille", "RC Lens", "Stade Rennais",
+        "FC Nantes", "Girondins de Bordeaux", "AS Saint-Étienne", "Trabzonspor"
+    ]
 
 def run_top_250_scheduler():
     """Run the scheduler for top 250 teams system"""
