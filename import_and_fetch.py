@@ -6,13 +6,13 @@ import json
 print("🟢 STARTED import_and_fetch.py", flush=True)
 from db import db
 from app import app
-from import_data import import_matches_from_csv, generate_football_data_urls
+# CSV imports removed - using API-Football only
 from fixture_import import fetch_next_48_hours_fixtures
 from apscheduler.schedulers.blocking import BlockingScheduler\
 
 
-# Define the file path for storing top 100 teams
-TOP_100_TEAMS_FILE = "top_100_teams.json"
+# Define the file path for storing top 250 teams
+TOP_250_TEAMS_FILE = "top_250_teams.json"
 
 # Import the new API-Football system
 try:
@@ -23,20 +23,7 @@ except ImportError as e:
     print(f"⚠️  API import system not available: {e}", flush=True)
     API_IMPORT_AVAILABLE = False
 
-def scheduled_fetch():
-    """Scheduled CSV-based import for recent seasons"""
-    print("Running scheduled match import (CSV fetch)...", flush=True)
-    urls = generate_football_data_urls(
-        start_season=2024,
-        end_season=2025,
-        include_club_world_cup=True
-    )
-    for url in urls:
-        try:
-            import_matches_from_csv(url)
-        except Exception as e:
-            print(f"Error in scheduled import {url}: {e}", flush=True)
-    print("Scheduled CSV fetch complete.", flush=True)
+# CSV scheduled fetch removed - using API-Football only
 
 def scheduled_fixture_fetch():
     """Scheduled function to fetch fixtures from API-Football"""
@@ -185,98 +172,178 @@ def api_import_test():
             return False
 
 
-def import_all_once_enhanced():
-    """Enhanced startup import that can use both CSV and API"""
-    print("🚀 Enhanced startup import...", flush=True)
-    
-    # Option 1: Try API import first (if available and configured)
-    if API_IMPORT_AVAILABLE and os.environ.get("API_FOOTBALL_KEY"):
-        print("🔄 Attempting API-based import...", flush=True)
-        if api_import_test():
-            print("✅ API import successful, skipping CSV import", flush=True)
-            return
-        else:
-            print("⚠️  API import failed, falling back to CSV import...", flush=True)
-    
-    # Option 2: Fallback to CSV import
-    print("🔄 Running CSV-based import...", flush=True)
-    import_all_once()
+# CSV import functions removed - using API-Football only
 
-
-def import_all_once():
-    """Original CSV-based import (kept as fallback)"""
-    print("Importing all matches ONCE at startup from CSV, including Club World Cup...", flush=True)
-    urls = generate_football_data_urls(
-        start_season=1993,
-        end_season=2025,
-        include_club_world_cup=True
-    )
-    for url in urls:
+def import_top_250_teams_initial():
+    """One-time import of top 250 teams with full history from 2000 onwards"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available", flush=True)
+        return False
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set", flush=True)
+        return False
+    
+    print("🚀 Starting one-time import of top 250 teams with full history...", flush=True)
+    
+    with app.app_context():
         try:
-            import_matches_from_csv(url)
+            migrate_database()
+            
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=2024,
+                request_delay=0.4  # Slightly conservative for large import
+            )
+            
+            # Get top 250 teams by popularity
+            print("🔄 Fetching top 250 teams by popularity...")
+            all_teams = importer.fetch_all_teams()
+            teams_sorted = sorted(all_teams, key=lambda t: t['popularity'], reverse=True)
+            top_250_teams = teams_sorted[:250]
+            
+            # Save team IDs for future reference
+            team_ids = [team['id'] for team in top_250_teams]
+            save_top_250_teams(team_ids)
+            
+            print(f"✅ Selected top 250 teams")
+            print(f"📊 Sample teams: {[t['name'] for t in top_250_teams[:5]]}")
+            
+            # Import historical data from 2000 onwards for these teams
+            seasons_to_import = list(range(2000, 2025))  # 2000 to 2024
+            
+            for season in seasons_to_import:
+                print(f"🔄 Importing season {season}-{season+1}...")
+                importer.current_season = season
+                
+                # Import data for our top 250 teams for this season
+                importer.import_teams_by_ids_for_season(team_ids, season)
+                
+                # Check if we're approaching API limits
+                remaining = importer.max_requests_per_day - importer.requests_made
+                if remaining < 200:  # Safety buffer
+                    print(f"⚠️  Approaching API limit ({remaining} requests left). Stopping at season {season}")
+                    break
+            
+            print("✅ Top 250 teams historical import completed successfully")
+            return True
+            
         except Exception as e:
-            print(f"Error importing {url}: {e}", flush=True)
-    print("Initial CSV import complete.", flush=True)
+            print(f"❌ Top 250 teams import failed: {str(e)}", flush=True)
+            return False
 
-def run_scheduler(mode="enhanced"):
-    """Run the scheduler with different import strategies"""
+def update_top_250_teams_current_season():
+    """Update data for top 250 teams - current season only (2024-2025)"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available", flush=True)
+        return
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set", flush=True)
+        return
+    
+    # Load saved team IDs
+    team_ids = load_top_250_teams()
+    if not team_ids:
+        print("❌ No top 250 teams found. Run initial import first.", flush=True)
+        return
+    
+    print(f"🔄 Updating current season data for {len(team_ids)} teams...", flush=True)
+    
+    with app.app_context():
+        try:
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=2024,
+                request_delay=0.3  # Faster for frequent updates
+            )
+            
+            # Import only 2024-2025 season data
+            importer.import_teams_by_ids_for_season(team_ids, 2024)
+            
+            print("✅ Top 250 teams current season update completed", flush=True)
+            
+        except Exception as e:
+            print(f"❌ Top 250 teams update failed: {str(e)}", flush=True)
+
+def fetch_upcoming_fixtures_for_top_250():
+    """Fetch upcoming fixtures for the next week for all top 250 teams"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available", flush=True)
+        return
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set", flush=True)
+        return
+    
+    # Load saved team IDs
+    team_ids = load_top_250_teams()
+    if not team_ids:
+        print("❌ No top 250 teams found. Run initial import first.", flush=True)
+        return
+    
+    print(f"🔄 Fetching upcoming fixtures for {len(team_ids)} teams...", flush=True)
+    
+    with app.app_context():
+        try:
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=2024,
+                request_delay=0.3
+            )
+            
+            # Fetch fixtures for next 7 days for our teams
+            from datetime import datetime, timedelta
+            today = datetime.now()
+            end_date = today + timedelta(days=7)
+            
+            importer.fetch_fixtures_for_teams(team_ids, today, end_date)
+            
+            print("✅ Upcoming fixtures fetch completed", flush=True)
+            
+        except Exception as e:
+            print(f"❌ Fixtures fetch failed: {str(e)}", flush=True)
+
+def save_top_250_teams(team_ids):
+    """Save top 250 team IDs to file"""
+    with open(TOP_250_TEAMS_FILE, "w") as f:
+        json.dump(team_ids, f)
+    print(f"💾 Saved {len(team_ids)} team IDs")
+
+def load_top_250_teams():
+    """Load top 250 team IDs from file"""
+    if not os.path.exists(TOP_250_TEAMS_FILE):
+        return None
+    with open(TOP_250_TEAMS_FILE, "r") as f:
+        return json.load(f)
+
+def run_top_250_scheduler():
+    """Run the scheduler for top 250 teams system"""
+    print("🚀 Starting Top 250 Teams Scheduler", flush=True)
     
     scheduler = BlockingScheduler()
     
-    if mode == "api-only":
-        print("🚀 API-only mode: Using API-Football for all imports", flush=True)
-        
-        # Full API import weekly (Sundays at 2 AM UTC)
-        scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
-        
-        # Quick API updates daily (6 AM UTC) 
-        scheduler.add_job(api_import_updates, 'cron', hour=6, minute=0, id='daily_api_updates')
-        
-        # Fixture fetch daily (8 AM UTC)
-        scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
-        
-    elif mode == "csv-only":
-        print("📁 CSV-only mode: Using CSV imports only", flush=True)
-        
-        # Historical match data import (every 5 minutes)
-        scheduler.add_job(scheduled_fetch, 'interval', minutes=5, id='csv_import_frequent')
-        
-        # Fixture fetch daily (8 AM UTC)
-        scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
-        
-    elif mode == "enhanced":
-        print("🔄 Enhanced mode: API + CSV hybrid approach", flush=True)
-        
-        # Full API import weekly (Sundays at 2 AM UTC)
-        scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
-        
-        # Quick API updates every 3 days (4 AM UTC)
-        scheduler.add_job(api_import_updates, 'cron', hour=4, minute=0, day='*/3', id='periodic_api_updates')
-        
-        # CSV import for recent seasons (daily at 5 AM UTC)
-        scheduler.add_job(scheduled_fetch, 'cron', hour=5, minute=0, id='daily_csv_import')
-        
-        # Fixture fetch daily (8 AM UTC)
-        scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
-        
-    elif mode == "live":
-        print("⚡ Live mode: Frequent updates for current season with daily fixtures", flush=True)
-        
-        # Frequent season updates every 5 minutes for live scores
-        scheduler.add_job(api_frequent_season_update, 'interval', minutes=5, id='frequent_season_update')
-        
-        # Daily fixture fetch for upcoming week (8 AM UTC)
-        scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch_week')
-        
-        # Full API import weekly (Sundays at 2 AM UTC) for comprehensive data
-        scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
-        
-    else:
-        print(f"❌ Unknown mode: {mode}", flush=True)
-        return
+    # Every 5 minutes: Update current season data for top 250 teams
+    scheduler.add_job(
+        update_top_250_teams_current_season, 
+        'interval', 
+        minutes=5, 
+        id='top_250_current_updates'
+    )
     
-    print(f"📅 Starting scheduler in {mode} mode...", flush=True)
-    print("📊 Scheduled jobs:", flush=True)
+    # Daily at 6 AM UTC: Fetch upcoming fixtures for next week
+    scheduler.add_job(
+        fetch_upcoming_fixtures_for_top_250,
+        'cron',
+        hour=6,
+        minute=0,
+        id='daily_fixtures_fetch'
+    )
+    
+    print("📅 Scheduled jobs:", flush=True)
     for job in scheduler.get_jobs():
         print(f"   - {job.name}: {job.trigger}", flush=True)
     
@@ -288,19 +355,14 @@ def run_scheduler(mode="enhanced"):
 
 
 def main():
-    """Main function with command line interface"""
-    parser = argparse.ArgumentParser(description="Enhanced Import and Fetch System")
-    parser.add_argument("--mode", choices=["api-only", "csv-only", "enhanced", "live"], 
-                       default="enhanced",
-                       help="Import strategy (default: enhanced)")
-    parser.add_argument("--startup-import", action="store_true",
-                       help="Run startup import before scheduling")
-    parser.add_argument("--test-api", action="store_true",
-                       help="Test API import and exit")
-    parser.add_argument("--test-csv", action="store_true",
-                       help="Test CSV import and exit")
-    parser.add_argument("--test-frequent", action="store_true",
-                       help="Test frequent season update and exit")
+    """Main function - automatically handles initial import and ongoing scheduling"""
+    parser = argparse.ArgumentParser(description="Top 250 Football Teams Import System")
+    parser.add_argument("--force-initial-import", action="store_true",
+                       help="Force re-run of initial import even if teams already exist")
+    parser.add_argument("--test-current-update", action="store_true",
+                       help="Test current season update and exit")
+    parser.add_argument("--test-fixtures", action="store_true",
+                       help="Test fixture fetch and exit")
     parser.add_argument("--dry-run", action="store_true",
                        help="Show what would be scheduled without running")
     
@@ -312,175 +374,46 @@ def main():
         print("✅ All tables created (if not exist)", flush=True)
         
         # Handle test modes
-        if args.test_api:
-            print("🧪 Testing API import...", flush=True)
-            if api_import_test():
-                print("✅ API import test successful!", flush=True)
+        if args.test_current_update:
+            print("🧪 Testing current season update...", flush=True)
+            update_top_250_teams_current_season()
+            return
+            
+        if args.test_fixtures:
+            print("🧪 Testing fixture fetch...", flush=True)
+            fetch_upcoming_fixtures_for_top_250()
+            return
+        
+        # Handle dry run
+        if args.dry_run:
+            print("🔍 DRY RUN: Top 250 Teams Scheduler", flush=True)
+            print("📅 Would schedule:", flush=True)
+            print("   - Current season updates: Every 5 minutes", flush=True)
+            print("   - Fixture fetch: Daily at 6 AM UTC", flush=True)
+            return
+        
+        # Check if we need to run initial import
+        team_ids = load_top_250_teams()
+        
+        if not team_ids or args.force_initial_import:
+            if args.force_initial_import:
+                print("🔄 Force initial import requested...", flush=True)
             else:
-                print("❌ API import test failed!", flush=True)
-            return
+                print("🔍 No existing team data found. Running initial import...", flush=True)
             
-        if args.test_csv:
-            print("🧪 Testing CSV import...", flush=True)
-            try:
-                import_all_once()
-                print("✅ CSV import test successful!", flush=True)
-            except Exception as e:
-                print(f"❌ CSV import test failed: {e}", flush=True)
-            return
-            
-        if args.test_frequent:
-            print("🧪 Testing frequent season update...", flush=True)
-            try:
-                api_frequent_season_update()
-                print("✅ Frequent season update test successful!", flush=True)
-            except Exception as e:
-                print(f"❌ Frequent season update test failed: {e}", flush=True)
-            return
-        
-        # Run startup import if requested
-        if args.startup_import:
-            print("🚀 Running startup import...", flush=True)
-            if args.mode == "api-only":
-                api_import_test()
-            elif args.mode == "csv-only":
-                import_all_once()
-            elif args.mode == "live":
-                print("⚡ Running initial frequent season update...", flush=True)
-                api_frequent_season_update()
-            else:  # enhanced
-                import_all_once_enhanced()
+            if import_top_250_teams_initial():
+                print("✅ Initial import completed successfully", flush=True)
+                print("🔄 Now starting ongoing scheduler...", flush=True)
+            else:
+                print("❌ Initial import failed. Cannot start scheduler.", flush=True)
+                return
+        else:
+            print(f"✅ Found existing data for {len(team_ids)} teams", flush=True)
+            print("🔄 Starting ongoing scheduler...", flush=True)
     
-    # Handle dry run
-    if args.dry_run:
-        print(f"🔍 DRY RUN: Would start scheduler in {args.mode} mode", flush=True)
-        
-        # Show what would be scheduled
-        if args.mode == "api-only":
-            print("📅 Would schedule:", flush=True)
-            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
-            print("   - API updates: Daily at 6 AM UTC", flush=True) 
-            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
-        elif args.mode == "csv-only":
-            print("📅 Would schedule:", flush=True)
-            print("   - CSV import: Every 5 minutes", flush=True)
-            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
-        elif args.mode == "live":
-            print("📅 Would schedule:", flush=True)
-            print("   - Frequent season updates: Every 5 minutes (2024-2025 season)", flush=True)
-            print("   - Weekly fixture fetch: Daily at 8 AM UTC", flush=True)
-            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
-        else:  # enhanced
-            print("📅 Would schedule:", flush=True)
-            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
-            print("   - API updates: Every 3 days at 4 AM UTC", flush=True)
-            print("   - CSV import: Daily at 5 AM UTC", flush=True)
-            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
-        return
-    
-    # Run the scheduler
-    run_scheduler(args.mode)
-def get_top_100_teams(api_importer):
-    """Fetch and return the top 100 teams by popularity using the API importer."""
-    teams = api_importer.fetch_all_teams()  # You must implement this in your importer
-    # Sort teams by popularity (you must define how to measure this)
-    teams_sorted = sorted(teams, key=lambda t: t['popularity'], reverse=True)
-    return [team['id'] for team in teams_sorted[:100]]
-
-def save_top_100_teams(team_ids):
-    with open(TOP_100_TEAMS_FILE, "w") as f:
-        json.dump(team_ids, f)
-
-def load_top_100_teams():
-    if not os.path.exists(TOP_100_TEAMS_FILE):
-        return None
-    with open(TOP_100_TEAMS_FILE, "r") as f:
-        return json.load(f)
-
-def import_top_100_teams_once():
-    """Import all available data for the top 100 teams by popularity and save their IDs."""
-    if not API_IMPORT_AVAILABLE:
-        print("❌ API import system not available, skipping...", flush=True)
-        return
-
-    api_key = os.environ.get("API_FOOTBALL_KEY")
-    if not api_key:
-        print("❌ API_FOOTBALL_KEY not set, skipping API import...", flush=True)
-        return
-
-    print("🚀 Importing all data for top 100 teams by popularity...", flush=True)
-    with app.app_context():
-        try:
-            migrate_database()
-            importer = APIFootballImporter(
-                api_key=api_key,
-                current_season=datetime.now().year,
-                request_delay=0.5
-            )
-            top_100_team_ids = get_top_100_teams(importer)
-            save_top_100_teams(top_100_team_ids)
-            importer.run_import(team_ids=top_100_team_ids)
-            print("✅ Top 100 teams import completed successfully", flush=True)
-        except Exception as e:
-            print(f"❌ Top 100 teams import failed: {str(e)}", flush=True)
-
-def update_top_100_teams():
-    """Update data for the same top 100 teams as at startup."""
-    if not API_IMPORT_AVAILABLE:
-        print("❌ API import system not available, skipping...", flush=True)
-        return
-
-    api_key = os.environ.get("API_FOOTBALL_KEY")
-    if not api_key:
-        print("❌ API_FOOTBALL_KEY not set, skipping API update...", flush=True)
-        return
-
-    team_ids = load_top_100_teams()
-    if not team_ids:
-        print("❌ No top 100 teams found. Run the startup import first.", flush=True)
-        return
-
-    print("🔄 Updating data for the same top 100 teams by popularity...", flush=True)
-    with app.app_context():
-        try:
-            importer = APIFootballImporter(
-                api_key=api_key,
-                current_season=datetime.now().year,
-                request_delay=0.3
-            )
-            importer.run_import(team_ids=team_ids)
-            print("✅ Top 100 teams update completed successfully", flush=True)
-        except Exception as e:
-            print(f"❌ Top 100 teams update failed: {str(e)}", flush=True)
-
-def run_scheduler_top_100():
-    """Run the scheduler to update top 100 teams every 5 minutes."""
-    scheduler = BlockingScheduler()
-    scheduler.add_job(update_top_100_teams, 'interval', minutes=5, id='top_100_teams_update')
-    print("📅 Starting scheduler for top 100 teams (every 5 minutes)...", flush=True)
-    try:
-        scheduler.start()
-    except KeyboardInterrupt:
-        print("🛑 Scheduler stopped by user", flush=True)
-        scheduler.shutdown()
-
-def main_top_100():
-    """Main function for top 100 teams import and scheduling"""
-    parser = argparse.ArgumentParser(description="Import and update top 100 teams")
-    parser.add_argument("--startup-import", action="store_true", help="Import top 100 teams before scheduling")
-    args = parser.parse_args()
-
-    with app.app_context():
-        db.create_all()
-        print("✅ All tables created (if not exist)", flush=True)
-        if args.startup_import:
-            import_top_100_teams_once()
-
-    run_scheduler_top_100()
+    # Run the ongoing scheduler
+    run_top_250_scheduler()
+# Old functions removed - using new top 250 system
 
 if __name__ == "__main__":
-    # Check if we should run the top 100 teams version or the enhanced version
-    if len(sys.argv) > 1 and "--top-100" in sys.argv:
-        main_top_100()
-    else:
-        main()
+    main()

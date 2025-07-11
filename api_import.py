@@ -748,6 +748,112 @@ class APIFootballImporter:
             "venue": venue.get("name"),
             "league_name": "Unknown"  # Will be updated when processing fixtures
         }
+    
+    def import_teams_by_ids_for_season(self, team_ids: List[int], season: int):
+        """Import data for specific teams by their API-Football IDs for a specific season"""
+        print(f"🔄 Importing data for {len(team_ids)} teams for season {season}...")
+        
+        old_season = self.current_season
+        self.current_season = season
+        
+        teams_processed = 0
+        
+        for team_id in team_ids:
+            if self.requests_made >= self.max_requests_per_day - 20:  # Safety buffer
+                print(f"❌ Approaching request limit, stopping team import early at team {teams_processed}")
+                break
+                
+            print(f"🔄 Processing team ID {team_id} for season {season}...")
+            
+            # Get team info if we don't have it
+            team_data = self.get_team_info(team_id)
+            if not team_data:
+                continue
+                
+            # Get fixtures for this team and season
+            fixtures = self.get_team_fixtures(team_id, season)
+            
+            # Process fixtures
+            for fixture_data in fixtures:
+                self.process_fixture(fixture_data, team_data.get("league_name", "Unknown"))
+            
+            teams_processed += 1
+            
+            # Commit every 20 teams to avoid memory issues
+            if teams_processed % 20 == 0:
+                self.commit_batched_data()
+                print(f"✅ Processed {teams_processed}/{len(team_ids)} teams for season {season}")
+        
+        # Final commit for this season
+        self.commit_batched_data()
+        
+        # Restore original season
+        self.current_season = old_season
+        
+        print(f"✅ Completed season {season} import for {teams_processed} teams")
+    
+    def fetch_fixtures_for_teams(self, team_ids: List[int], start_date: datetime, end_date: datetime):
+        """Fetch fixtures for specific teams within a date range"""
+        print(f"🔄 Fetching fixtures for {len(team_ids)} teams from {start_date.date()} to {end_date.date()}...")
+        
+        total_fixtures = 0
+        teams_processed = 0
+        
+        for team_id in team_ids:
+            if self.requests_made >= self.max_requests_per_day - 10:  # Safety buffer
+                print(f"❌ Approaching request limit, stopping fixture fetch early")
+                break
+            
+            # Get fixtures for this team in the date range
+            params = {
+                "team": str(team_id),
+                "from": start_date.strftime("%Y-%m-%d"),
+                "to": end_date.strftime("%Y-%m-%d"),
+                "timezone": "UTC"
+            }
+            
+            data = self._make_request("fixtures", params)
+            if not data:
+                continue
+            
+            fixtures = []
+            for fixture_data in data.get("response", []):
+                fixture = fixture_data.get("fixture", {})
+                teams = fixture_data.get("teams", {})
+                league = fixture_data.get("league", {})
+                goals = fixture_data.get("goals", {})
+                
+                fixture_id = fixture.get("id")
+                
+                fixtures.append({
+                    "api_fixture_id": fixture_id,
+                    "date": fixture.get("date"),
+                    "status": fixture.get("status", {}).get("short"),
+                    "venue": fixture.get("venue", {}).get("name"),
+                    "home_team": teams.get("home", {}),
+                    "away_team": teams.get("away", {}),
+                    "league": league,
+                    "goals": goals,
+                    "referee": fixture.get("referee")
+                })
+            
+            # Process fixtures
+            for fixture_data in fixtures:
+                # We need to determine league name from the fixture data
+                league_name = fixture_data.get("league", {}).get("name", "Unknown")
+                self.process_fixture(fixture_data, league_name)
+            
+            total_fixtures += len(fixtures)
+            teams_processed += 1
+            
+            # Commit every 50 fixtures to avoid memory issues
+            if len(self.fixtures_batch) >= 50:
+                self.commit_batched_data()
+        
+        # Final commit
+        self.commit_batched_data()
+        
+        print(f"✅ Fetched {total_fixtures} fixtures for {teams_processed} teams")
 
 
 def main():
