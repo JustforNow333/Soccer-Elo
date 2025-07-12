@@ -76,6 +76,93 @@ def debug_teams():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/debug/elo-ratings/")
+def debug_elo_ratings():
+    try:
+        ratings = EloRating.query.all()
+        return jsonify({
+            "count": len(ratings),
+            "sample_ratings": [
+                {
+                    "team_id": rating.team_id,
+                    "rating": rating.rating,
+                    "date": rating.date.isoformat()
+                } for rating in ratings[:20]  # Show first 20
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/debug/matches/")
+def debug_matches():
+    try:
+        matches = Match.query.all()
+        return jsonify({
+            "count": len(matches),
+            "sample_matches": [
+                {
+                    "id": match.id,
+                    "date": match.date.isoformat(),
+                    "home_team_id": match.home_team_id,
+                    "away_team_id": match.away_team_id,
+                    "home_score": match.home_score,
+                    "away_score": match.away_score
+                } for match in matches[:20]  # Show first 20
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/debug/fixtures-list/")
+def debug_fixtures_list():
+    try:
+        fixtures = Fixture.query.all()
+        return jsonify({
+            "count": len(fixtures),
+            "sample_fixtures": [
+                {
+                    "id": fixture.id,
+                    "date": fixture.date.isoformat(),
+                    "home_team_name": fixture.home_team_name,
+                    "away_team_name": fixture.away_team_name,
+                    "league_name": fixture.league_name,
+                    "status": fixture.status
+                } for fixture in fixtures[:20]  # Show first 20
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/debug/summary/")
+def debug_summary():
+    """Complete database summary for checking import status"""
+    try:
+        teams_count = Team.query.count()
+        matches_count = Match.query.count()
+        ratings_count = EloRating.query.count()
+        fixtures_count = Fixture.query.count()
+        
+        return jsonify({
+            "database_summary": {
+                "teams": teams_count,
+                "matches": matches_count,
+                "elo_ratings": ratings_count,
+                "fixtures": fixtures_count
+            },
+            "status": {
+                "teams_imported": teams_count > 0,
+                "matches_imported": matches_count > 0,
+                "ratings_calculated": ratings_count > 0,
+                "fixtures_fetched": fixtures_count > 0
+            },
+            "recommendations": {
+                "need_import": teams_count == 0,
+                "ready_for_use": teams_count > 0 and matches_count > 0 and ratings_count > 0
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/debug/team-names/")
 def debug_team_names():
     """Show actual team names in database for debugging fixture matching"""
@@ -543,27 +630,42 @@ def handle_payment_failed(invoice):
         raise
     
 def update_elo_after_match(match_id, k=20):
-    match = Match.query.get(match_id)
-    if not match:
-        return jsonify({"error": "Match not found"}), 404
+    """Update ELO ratings for both teams after a match"""
+    try:
+        match = Match.query.get(match_id)
+        if not match:
+            raise ValueError(f"Match with ID {match_id} not found")
 
-    home_team = Team.query.get(match.home_team_id)
-    away_team = Team.query.get(match.away_team_id)
+        home_team = Team.query.get(match.home_team_id)
+        away_team = Team.query.get(match.away_team_id)
 
-    if home_team is None or away_team is None:
-        return {"error": "Home or away team not found"}, 400
+        if home_team is None or away_team is None:
+            raise ValueError("Home or away team not found")
 
-    home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
-    away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
+        # Get latest ratings for both teams
+        home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
+        away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
 
-    home_score, away_score = get_match_result(match.home_score, match.away_score)
-    home_rating_val = home_rating.rating if home_rating else 1000
-    away_rating_val = away_rating.rating if away_rating else 1000
+        # Calculate match results (1, 0.5, or 0 for each team)
+        home_score, away_score = get_match_result(match.home_score, match.away_score)
+        home_rating_val = home_rating.rating if home_rating else 1000
+        away_rating_val = away_rating.rating if away_rating else 1000
 
-    db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=update_elo(home_rating_val, away_rating_val, home_score, k)))
-    db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=update_elo(away_rating_val, home_rating_val, away_score, k)))
-    db.session.commit()
-    return {"message": "Elo updated"}, 200
+        # Calculate new ratings
+        new_home_rating = update_elo(home_rating_val, away_rating_val, home_score, k)
+        new_away_rating = update_elo(away_rating_val, home_rating_val, away_score, k)
+
+        # Add new ratings to database
+        db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=new_home_rating))
+        db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=new_away_rating))
+        
+        return {
+            "home_team_new_rating": new_home_rating,
+            "away_team_new_rating": new_away_rating
+        }
+    except Exception as e:
+        db.session.rollback()
+        raise e
 
 # NO scheduler runs at startup anymore
 
