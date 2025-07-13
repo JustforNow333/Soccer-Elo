@@ -7,5 +7,5 @@ pandas==2.1.4
 numpy==1.26.2
 psycopg2-binary==2.9.9
 gunicorn==21.2.0
-apscheduler==3.10.4
+apscheduler==3.11.0
 stripe==12.3.0
