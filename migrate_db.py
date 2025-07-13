@@ -17,11 +17,28 @@ from db import db
 
 
 def migrate_database():
-    """Add api_football_id column to teams table if it doesn't exist"""
+    """Create database tables and add api_football_id column if needed"""
     
     with app.app_context():
         try:
-            # Check if column already exists
+            # First, create all tables if they don't exist
+            print("🔄 Creating database tables...")
+            db.create_all()
+            print("✅ Database tables created/verified")
+            
+            # Check if teams table exists
+            table_exists = db.session.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'teams'
+                )
+            """)).fetchone()[0]
+            
+            if not table_exists:
+                print("❌ Teams table still doesn't exist after create_all()")
+                return False
+            
+            # Check if api_football_id column already exists
             result = db.session.execute(text("""
                 SELECT column_name 
                 FROM information_schema.columns 
@@ -33,7 +50,7 @@ def migrate_database():
                 print("✅ api_football_id column already exists in teams table")
                 return True
             
-            # Add the column
+            # Add the column if it doesn't exist
             print("🔄 Adding api_football_id column to teams table...")
             db.session.execute(text("""
                 ALTER TABLE teams 

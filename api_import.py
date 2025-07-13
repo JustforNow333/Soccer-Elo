@@ -82,7 +82,11 @@ class APIFootballImporter:
         self._load_existing_data()
         self._load_request_count()
 
-    
+    def _increment_request_count(self):
+        """Increment the request counter and update statistics"""
+        self.requests_made += 1
+        self.stats["requests_made"] = self.requests_made
+
     def fetch_all_teams(self) -> list:
         """
         Fetch all teams across all leagues for the current season.
