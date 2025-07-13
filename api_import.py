@@ -33,7 +33,7 @@ from top_250_teams import get_team_mapper, get_top_250_team_names
 class APIFootballImporter:
     """Comprehensive API-Football data importer with optimization and caching"""
     
-    def __init__(self, api_key: str, current_season: int = None, request_delay: float = 0.5, max_requests_per_day: int = 7500):
+    def __init__(self, api_key: str, current_season: int = None, request_delay: float = 0.5, max_requests_per_day: int = 7500, daily_operations_budget: int = None):
         self.api_key = api_key
         self.base_url = "https://v3.football.api-sports.io"
         self.headers = {
@@ -42,6 +42,12 @@ class APIFootballImporter:
         }
         self.current_season = current_season or datetime.now().year
         self.request_delay = request_delay
+        
+        # Smart budget allocation for daily operations
+        if daily_operations_budget is not None:
+            self.daily_operations_budget = daily_operations_budget
+        else:
+            self.daily_operations_budget = 800  # Default conservative budget for ongoing operations
         
         # Request tracking with daily reset
         self.requests_made = 0
@@ -947,6 +953,95 @@ class APIFootballImporter:
         
         return ' '.join(words).strip()
     
+    def map_top_250_teams_optimized(self) -> None:
+        """
+        Efficiently map the top 250 teams to their API IDs using optimized batch processing.
+        Uses ~150 requests instead of ~300 by batching league searches.
+        """
+        print("🔍 Optimized mapping of top 250 teams to API IDs...")
+        
+        team_mapper = get_team_mapper()
+        team_names = get_top_250_team_names()
+        unmapped_teams = team_mapper.get_unmapped_teams()
+        
+        print(f"📊 Teams to map: {len(unmapped_teams)}")
+        
+        if not unmapped_teams:
+            print("✅ All teams already mapped!")
+            return
+        
+        # Get all leagues once - major optimization
+        print("🌍 Getting all leagues...")
+        leagues = self.get_top_leagues(100)  # Get top 100 leagues
+        self._increment_request_count()
+        
+        # Create a comprehensive team database from all leagues
+        print("🏟️  Building comprehensive team database...")
+        all_teams = {}  # name -> team_data
+        
+        # Batch process leagues to get all teams efficiently
+        for i, league in enumerate(leagues, 1):
+            if self.requests_made >= self.max_requests_per_day - 20:
+                print(f"⚠️  Stopping league processing - approaching request limit")
+                break
+                
+            print(f"   Processing league {i}/{len(leagues)}: {league['name']}")
+            teams = self.get_league_teams(league['id'], self.current_season)
+            
+            for team in teams:
+                # Store multiple name variations for better matching
+                names_to_try = [
+                    team['name'],
+                    self._clean_team_name(team['name']),
+                    team['name'].replace('FC', '').replace('SC', '').replace('AC', '').strip()
+                ]
+                
+                for name_variant in names_to_try:
+                    if name_variant:
+                        all_teams[name_variant.lower()] = team
+        
+        print(f"🎯 Built database of {len(all_teams)} team name variants")
+        
+        # Now efficiently match our 250 teams
+        matched_count = 0
+        for team_name in unmapped_teams:
+            if self.requests_made >= self.max_requests_per_day - 20:
+                print(f"⚠️  Stopping mapping - approaching request limit")
+                break
+            
+            # Try multiple matching strategies
+            matched_team = None
+            
+            # 1. Direct name match
+            clean_name = self._clean_team_name(team_name).lower()
+            if clean_name in all_teams:
+                matched_team = all_teams[clean_name]
+            
+            # 2. Fuzzy matching with stored teams
+            if not matched_team:
+                for stored_name, team_data in all_teams.items():
+                    if self._is_team_name_match(team_name, stored_name):
+                        matched_team = team_data
+                        break
+            
+            if matched_team:
+                team_mapper.add_team_mapping(
+                    name=team_name,
+                    api_id=matched_team['id'],
+                    league=matched_team.get('league', 'Unknown'),
+                    country=matched_team.get('country', 'Unknown')
+                )
+                matched_count += 1
+                print(f"✅ Mapped: {team_name} -> {matched_team['name']} (ID: {matched_team['id']})")
+            else:
+                print(f"❌ Could not map: {team_name}")
+        
+        # Save mappings
+        team_mapper.save_mapping()
+        progress = team_mapper.get_mapping_progress()
+        print(f"🎯 Mapping complete: {progress['mapped']}/{progress['total']} teams ({progress['progress_percent']}%)")
+        print(f"📊 Requests used: {self.requests_made}")
+
     def map_top_250_teams(self) -> None:
         """
         Find and map the top 250 teams to their API IDs.
@@ -993,6 +1088,194 @@ class APIFootballImporter:
         progress = team_mapper.get_mapping_progress()
         print(f"✅ Mapping complete! {progress['mapped']}/{progress['total']} teams mapped ({progress['progress_percent']}%)")
     
+    def import_top_250_teams_historical_enhanced(self, start_year: int = 2000) -> None:
+        """
+        Enhanced historical import with modern-biased coverage using ~6500 requests.
+        Prioritizes recent years with full coverage, dense modern era coverage, 
+        and selective historical sampling.
+        """
+        print(f"🏆 Enhanced historical import for top 250 teams from {start_year}...")
+        
+        team_mapper = get_team_mapper()
+        team_ids = team_mapper.get_mapped_team_ids()
+        
+        if not team_ids:
+            print("❌ No teams mapped! Run map_top_250_teams() first.")
+            return
+        
+        print(f"📊 Importing data for {len(team_ids)} teams")
+        
+        current_year = datetime.now().year
+        
+        # Enhanced season selection with modern bias
+        selected_seasons = []
+        
+        # Tier 1: Recent years (2019+) - FULL COVERAGE for maximum accuracy
+        recent_years = list(range(2019, current_year + 1))  # Last 6-7 years
+        selected_seasons.extend(recent_years)
+        
+        # Tier 2: Modern era (2010-2018) - DENSE COVERAGE 
+        modern_years = [2010, 2012, 2014, 2015, 2016, 2017, 2018]  # Every 1-2 years
+        selected_seasons.extend(modern_years)
+        
+        # Tier 3: Digital era (2000-2009) - SELECTIVE COVERAGE
+        historical_years = [2000, 2002, 2004, 2006, 2008]  # Every 2 years
+        selected_seasons.extend(historical_years)
+        
+        # Sort and ensure no duplicates
+        selected_seasons = sorted(set(selected_seasons))
+        
+        print(f"📅 Enhanced coverage strategy:")
+        print(f"   🔥 Recent (2019+): {len([y for y in selected_seasons if y >= 2019])} years - FULL coverage")
+        print(f"   ⚡ Modern (2010-2018): {len([y for y in selected_seasons if 2010 <= y < 2019])} years - DENSE coverage") 
+        print(f"   📚 Historical (2000-2009): {len([y for y in selected_seasons if y < 2010])} years - SELECTIVE coverage")
+        print(f"   📊 Total seasons: {len(selected_seasons)}")
+        print(f"   🎯 Selected years: {selected_seasons}")
+        
+        processed_seasons = 0
+        total_teams_processed = 0
+        
+        for season in selected_seasons:
+            if self.requests_made >= self.max_requests_per_day - 100:  # Conservative buffer
+                print(f"⚠️  Stopping import - approaching request limit")
+                break
+            
+            season_priority = "🔥 RECENT" if season >= 2019 else "⚡ MODERN" if season >= 2010 else "📚 HISTORICAL"
+            print(f"\n📅 Importing {season_priority} season {season}...")
+            
+            # Track teams processed this season
+            teams_this_season = 0
+            
+            # Adjust batch size based on remaining requests
+            remaining_requests = self.max_requests_per_day - self.requests_made
+            if remaining_requests > 500:
+                batch_size = 15  # Larger batches when we have plenty of requests
+            elif remaining_requests > 200:
+                batch_size = 10  # Medium batches
+            else:
+                batch_size = 5   # Small batches when close to limit
+            
+            for i in range(0, len(team_ids), batch_size):
+                if self.requests_made >= self.max_requests_per_day - 50:
+                    print(f"⚠️  Stopping season {season} - approaching request limit")
+                    break
+                
+                batch = team_ids[i:i + batch_size]
+                
+                for team_id in batch:
+                    if self.requests_made >= self.max_requests_per_day - 20:
+                        print(f"⚠️  Stopping team processing - approaching request limit")
+                        break
+                    
+                    # Get fixtures for this team in this season
+                    fixtures = self.get_team_fixtures(team_id, season)
+                    
+                    # Process fixtures
+                    for fixture_data in fixtures:
+                        self.process_fixture(fixture_data, f"Season {season}")
+                    
+                    teams_this_season += 1
+                
+                # Commit batch to avoid memory issues
+                if teams_this_season % 25 == 0:  # Commit every 25 teams
+                    self.commit_batched_data()
+            
+            # Final commit for season
+            self.commit_batched_data()
+            total_teams_processed += teams_this_season
+            processed_seasons += 1
+            
+            print(f"✅ Season {season} complete - processed {teams_this_season} teams")
+            print(f"📊 Running total: {processed_seasons}/{len(selected_seasons)} seasons, {self.requests_made} requests used")
+        
+        print(f"\n🎉 Enhanced historical import complete!")
+        print(f"📊 Processed {processed_seasons} seasons covering {len(selected_seasons)} years")
+        print(f"🎯 Modern bias: {len([y for y in selected_seasons if y >= 2010])}/{len(selected_seasons)} years from 2010+")
+        print(f"📈 Total requests used: {self.requests_made}")
+        print(f"🔋 Requests remaining: {self.max_requests_per_day - self.requests_made}")
+
+    def import_top_250_teams_historical_optimized(self, start_year: int = 2000) -> None:
+        """
+        Efficiently import historical data for the top 250 teams using selective sampling.
+        Uses ~3000 requests instead of ~5000 by sampling key seasons.
+        """
+        print(f"🏆 Optimized historical import for top 250 teams from {start_year}...")
+        
+        team_mapper = get_team_mapper()
+        team_ids = team_mapper.get_mapped_team_ids()
+        
+        if not team_ids:
+            print("❌ No teams mapped! Run map_top_250_teams() first.")
+            return
+        
+        print(f"📊 Importing data for {len(team_ids)} teams")
+        
+        current_year = datetime.now().year
+        
+        # Optimized season selection - sample key years instead of every year
+        # This provides good historical coverage while using fewer requests
+        key_seasons = []
+        
+        # Recent years (full coverage for accuracy)
+        recent_years = list(range(current_year - 4, current_year + 1))  # Last 5 years
+        key_seasons.extend(recent_years)
+        
+        # Sample historical years every 3-4 years to get good coverage
+        historical_years = []
+        year = start_year
+        while year < current_year - 4:
+            historical_years.append(year)
+            year += 3  # Sample every 3rd year
+        
+        key_seasons.extend(historical_years)
+        key_seasons = sorted(set(key_seasons))  # Remove duplicates and sort
+        
+        print(f"📅 Selected {len(key_seasons)} key seasons for import: {key_seasons[:5]}...{key_seasons[-5:]}")
+        
+        for season in key_seasons:
+            if self.requests_made >= self.max_requests_per_day - 100:  # Keep larger buffer
+                print(f"⚠️  Stopping import - approaching request limit")
+                break
+            
+            print(f"\n📅 Importing key season {season}...")
+            
+            # Track teams processed this season
+            teams_processed = 0
+            
+            # Process teams in smaller batches to stay under limits
+            batch_size = 10  # Smaller batches for better control
+            
+            for i in range(0, len(team_ids), batch_size):
+                if self.requests_made >= self.max_requests_per_day - 50:
+                    print(f"⚠️  Stopping season {season} - approaching request limit")
+                    break
+                
+                batch = team_ids[i:i + batch_size]
+                print(f"  Processing batch {i//batch_size + 1}: teams {i+1}-{min(i+batch_size, len(team_ids))}")
+                
+                for team_id in batch:
+                    if self.requests_made >= self.max_requests_per_day - 20:
+                        print(f"⚠️  Stopping team processing - approaching request limit")
+                        break
+                    
+                    # Get fixtures for this team in this season
+                    fixtures = self.get_team_fixtures(team_id, season)
+                    
+                    # Process fixtures
+                    for fixture_data in fixtures:
+                        self.process_fixture(fixture_data, f"Season {season}")
+                    
+                    teams_processed += 1
+                
+                # Commit batch to avoid memory issues
+                self.commit_batched_data()
+                print(f"    💾 Committed batch - {teams_processed} teams processed so far")
+            
+            print(f"✅ Season {season} complete - processed {teams_processed} teams")
+        
+        print(f"🎯 Historical import complete! Processed {len(key_seasons)} key seasons")
+        print(f"📊 Total requests used: {self.requests_made}")
+
     def import_top_250_teams_historical(self, start_year: int = 2000) -> None:
         """
         Import historical data for the top 250 teams from the specified start year.
@@ -1046,6 +1329,192 @@ class APIFootballImporter:
             print(f"✅ Season {season} complete - processed {teams_processed} teams")
         
         print(f"🎉 Historical import complete!")
+    
+    def single_day_complete_import_enhanced(self, start_year: int = 2000) -> None:
+        """
+        Safe single-day import using ~6200 requests, leaving 1300 for daily operations.
+        
+        Request breakdown:
+        - Team mapping: ~100 requests (optimized batch processing)
+        - Historical import: ~5800 requests (reduced but still modern-biased)
+        - Fixture updates: ~50 requests
+        - Daily operations budget: ~1300 requests reserved
+        - Safety buffer: ~250 requests
+        
+        Total: ~6150 requests + 1300 operations budget = 7450 (under 7500 limit)
+        """
+        print("🚀 Starting SAFE single-day import with operations budget...")
+        print("🎯 Target: Use ~6200 requests, reserve 1300 for daily operations")
+        
+        # Reserve budget for daily operations (5-minute updates + daily fixtures)
+        operations_budget = 1300
+        import_budget = self.max_requests_per_day - operations_budget - 50  # 50 for safety buffer
+        
+        print(f"📊 Budget allocation:")
+        print(f"   Import budget: {import_budget} requests")
+        print(f"   Operations budget: {operations_budget} requests")
+        print(f"   Safety buffer: 50 requests")
+        
+        start_requests = self.requests_made
+        
+        # Step 1: Optimized team mapping (~100 requests)
+        print("\n" + "="*60)
+        print("📍 STEP 1: Team Mapping (Target: ~100 requests)")
+        print("="*60)
+        self.map_top_250_teams_optimized()
+        
+        step1_requests = self.requests_made - start_requests
+        print(f"📊 Step 1 used {step1_requests} requests")
+        
+        # Check if we have enough mapped teams to proceed
+        team_mapper = get_team_mapper()
+        progress = team_mapper.get_mapping_progress()
+        
+        if progress['mapped'] < 200:
+            print(f"❌ Insufficient teams mapped ({progress['mapped']}/250). Need at least 200 to proceed.")
+            return
+        
+        # Step 2: Budget-aware historical import (~5800 requests)
+        print("\n" + "="*60)
+        print("📍 STEP 2: Budget-Aware Historical Import (Target: ~5800 requests)")
+        print("="*60)
+        
+        # Temporarily reduce max requests to preserve operations budget
+        original_max = self.max_requests_per_day
+        self.max_requests_per_day = import_budget
+        
+        self.import_top_250_teams_historical_enhanced(start_year)
+        
+        # Restore original limit
+        self.max_requests_per_day = original_max
+        
+        step2_requests = self.requests_made - start_requests - step1_requests
+        print(f"📊 Step 2 used {step2_requests} requests")
+        
+        # Step 3: Current season fixture updates (~50 requests)
+        print("\n" + "="*60)
+        print("📍 STEP 3: Current Fixtures (Target: ~50 requests)")
+        print("="*60)
+        self.update_top_250_fixtures()
+        
+        step3_requests = self.requests_made - start_requests - step1_requests - step2_requests
+        print(f"📊 Step 3 used {step3_requests} requests")
+        
+        # Final summary
+        total_requests = self.requests_made - start_requests
+        remaining = self.max_requests_per_day - self.requests_made
+        
+        print("\n" + "="*70)
+        print("🎉 ENHANCED SINGLE-DAY IMPORT COMPLETE!")
+        print("="*70)
+        print(f"📊 Total requests used: {total_requests}")
+        print(f"📈 Daily limit: {self.max_requests_per_day}")
+        print(f"🔋 Remaining today: {remaining}")
+        print(f"✅ Efficiency: {(total_requests/self.max_requests_per_day)*100:.1f}% of daily limit used")
+        
+        # Show what was accomplished
+        final_progress = team_mapper.get_mapping_progress()
+        print(f"\n🎯 Enhanced Results:")
+        print(f"   🗺️  Teams mapped: {final_progress['mapped']}/250 ({final_progress['progress_percent']}%)")
+        print(f"   📅 Historical coverage: 19 years from {start_year} (modern-biased)")
+        print(f"   🔥 Recent years (2019+): FULL coverage")
+        print(f"   ⚡ Modern years (2010-2018): DENSE coverage")
+        print(f"   📚 Historical years (2000-2009): SELECTIVE coverage")
+        print(f"   📊 Current fixtures: Updated")
+        print(f"   ✅ Ready for live updates: Yes")
+        
+        efficiency_rating = "🏆 EXCELLENT" if remaining > 300 else "👍 GOOD" if remaining > 100 else "⚠️ TIGHT"
+        print(f"\n📈 Efficiency Rating: {efficiency_rating}")
+        print(f"   {remaining} requests remaining for buffer/emergencies")
+        
+        print("\n🔄 System is now ready for:")
+        print("   • Daily fixture updates (6 AM UTC)")
+        print("   • 5-minute match updates")
+        print("   • All 250 teams tracked with enhanced historical depth")
+
+    def single_day_complete_import(self, start_year: int = 2000) -> None:
+        """
+        Complete single-day optimized import for all 250 teams under 7500 requests.
+        
+        Request breakdown:
+        - Team mapping: ~100 requests (optimized)
+        - Historical import: ~3000 requests (selective sampling)
+        - Fixture updates: ~50 requests
+        - Buffer: ~4350 requests remaining
+        
+        Total: ~3150 requests (well under 7500 limit)
+        """
+        print("🚀 Starting complete single-day optimized import...")
+        print("🎯 Target: Stay under 7500 API requests")
+        
+        start_requests = self.requests_made
+        
+        # Step 1: Optimized team mapping (~100 requests)
+        print("\n" + "="*50)
+        print("📍 STEP 1: Team Mapping (Target: ~100 requests)")
+        print("="*50)
+        self.map_top_250_teams_optimized()
+        
+        step1_requests = self.requests_made - start_requests
+        print(f"📊 Step 1 used {step1_requests} requests")
+        
+        # Check if we have enough mapped teams to proceed
+        team_mapper = get_team_mapper()
+        progress = team_mapper.get_mapping_progress()
+        
+        if progress['mapped'] < 200:
+            print(f"❌ Insufficient teams mapped ({progress['mapped']}/250). Need at least 200 to proceed.")
+            return
+        
+        # Step 2: Optimized historical import (~3000 requests)
+        print("\n" + "="*50)
+        print("📍 STEP 2: Historical Import (Target: ~3000 requests)")
+        print("="*50)
+        self.import_top_250_teams_historical_optimized(start_year)
+        
+        step2_requests = self.requests_made - start_requests - step1_requests
+        print(f"📊 Step 2 used {step2_requests} requests")
+        
+        # Step 3: Current season fixture updates (~50 requests)
+        print("\n" + "="*50)
+        print("📍 STEP 3: Current Fixtures (Target: ~50 requests)")
+        print("="*50)
+        self.update_top_250_fixtures()
+        
+        step3_requests = self.requests_made - start_requests - step1_requests - step2_requests
+        print(f"📊 Step 3 used {step3_requests} requests")
+        
+        # Final summary
+        total_requests = self.requests_made - start_requests
+        remaining = self.max_requests_per_day - self.requests_made
+        
+        print("\n" + "="*60)
+        print("🎉 SINGLE-DAY IMPORT COMPLETE!")
+        print("="*60)
+        print(f"📊 Total requests used: {total_requests}")
+        print(f"📈 Daily limit: {self.max_requests_per_day}")
+        print(f"🔋 Remaining today: {remaining}")
+        print(f"✅ Success rate: {(remaining/self.max_requests_per_day)*100:.1f}% limit remaining")
+        
+        # Show what was accomplished
+        final_progress = team_mapper.get_mapping_progress()
+        print(f"\n🎯 Results:")
+        print(f"   Teams mapped: {final_progress['mapped']}/250 ({final_progress['progress_percent']}%)")
+        print(f"   Historical data: {start_year} onwards (selective sampling)")
+        print(f"   Current fixtures: Updated")
+        print(f"   Ready for live updates: Yes")
+        
+        if remaining > 1000:
+            print(f"\n💡 Excellent! {remaining} requests remaining for ongoing operations.")
+        elif remaining > 500:
+            print(f"\n👍 Good! {remaining} requests remaining for daily operations.")
+        else:
+            print(f"\n⚠️  Tight but successful! {remaining} requests remaining.")
+        
+        print("\n🔄 System is now ready for:")
+        print("   • Daily fixture updates (6 AM UTC)")
+        print("   • 5-minute match updates")
+        print("   • All 250 teams tracked")
     
     def update_top_250_fixtures(self) -> None:
         """
@@ -1125,8 +1594,15 @@ class APIFootballImporter:
         """
         Update recent matches for top 250 teams.
         This should be run every 5 minutes for live updates.
+        Smart budget allocation ensures we never exceed daily limits.
         """
         print("⚡ Updating recent matches for top 250 teams...")
+        
+        # Check if we have budget for ongoing operations
+        remaining_budget = self.daily_operations_budget - (self.requests_made % self.daily_operations_budget)
+        if self.requests_made >= self.max_requests_per_day - 100:
+            print(f"⚠️  Skipping match update - approaching daily request limit")
+            return
         
         team_mapper = get_team_mapper()
         team_ids = team_mapper.get_mapped_team_ids()
@@ -1141,13 +1617,22 @@ class APIFootballImporter:
         
         matches_updated = 0
         
-        # Process a subset of teams each run to conserve API requests
-        # With 5-minute intervals, we can process ~50 teams per run
+        # Smart team selection based on remaining daily budget
+        # Calculate how many teams we can safely process
+        max_teams_this_cycle = min(5, remaining_budget // 2)  # Very conservative: 2 requests per team buffer
+        
+        if max_teams_this_cycle <= 0:
+            print(f"⚠️  Insufficient request budget remaining for match updates")
+            return
+        
         import random
-        selected_teams = random.sample(team_ids, min(50, len(team_ids)))
+        teams_per_cycle = min(max_teams_this_cycle, len(team_ids))
+        selected_teams = random.sample(team_ids, teams_per_cycle)
+        
+        print(f"📊 Processing {teams_per_cycle} teams (budget: {remaining_budget} requests)")
         
         for team_id in selected_teams:
-            if self.requests_made >= self.max_requests_per_day - 5:
+            if self.requests_made >= self.max_requests_per_day - 20:
                 print(f"⚠️  Stopping match update - approaching request limit")
                 break
             

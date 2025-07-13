@@ -109,6 +109,38 @@ class Top250Worker:
         
         return not self.status.get('historical_imported', False)
     
+    def run_single_day_complete_import(self):
+        """Run complete optimized single-day import under 7500 requests"""
+        print("🚀 Running complete single-day optimized import...")
+        
+        try:
+            with app.app_context():
+                migrate_database()
+                
+                importer = APIFootballImporter(
+                    api_key=self.api_key,
+                    current_season=datetime.now().year,
+                    request_delay=0.5,  # Balanced speed
+                    max_requests_per_day=7400,  # Use most of daily limit with buffer
+                    daily_operations_budget=1300  # Reserve budget for ongoing operations
+                )
+                
+                importer.single_day_complete_import_enhanced(start_year=2000)
+                
+                # Update status
+                self.status['teams_mapped'] = True
+                self.status['historical_imported'] = True
+                self.status['last_mapping_date'] = datetime.now().isoformat()
+                self.status['last_historical_date'] = datetime.now().isoformat()
+                self.save_status()
+                
+                print("✅ Complete single-day import successful!")
+                return True
+                
+        except Exception as e:
+            print(f"❌ Single-day import failed: {e}")
+            return False
+
     def run_mapping(self):
         """Run team mapping if needed"""
         if not self.should_run_mapping():
@@ -116,7 +148,7 @@ class Top250Worker:
             print(f"✅ Team mapping up to date: {progress['mapped']}/{progress['total']} teams mapped")
             return True
         
-        print("🗺️  Running team mapping...")
+        print("🗺️  Running optimized team mapping...")
         
         try:
             with app.app_context():
@@ -126,10 +158,10 @@ class Top250Worker:
                     api_key=self.api_key,
                     current_season=datetime.now().year,
                     request_delay=0.8,
-                    max_requests_per_day=6000
+                    max_requests_per_day=7400  # Higher limit for single operations
                 )
                 
-                importer.map_top_250_teams()
+                importer.map_top_250_teams_optimized()
                 
                 # Update status
                 self.status['teams_mapped'] = True
@@ -146,12 +178,12 @@ class Top250Worker:
             return False
     
     def run_historical_import(self):
-        """Run historical import if needed"""
+        """Run optimized historical import if needed"""
         if not self.should_run_historical():
             print("✅ Historical import up to date or mapping insufficient")
             return True
         
-        print("📚 Running historical data import from 2000...")
+        print("📚 Running optimized historical data import from 2000...")
         
         try:
             with app.app_context():
@@ -161,17 +193,17 @@ class Top250Worker:
                     api_key=self.api_key,
                     current_season=datetime.now().year,
                     request_delay=0.6,
-                    max_requests_per_day=6000
+                    max_requests_per_day=7400  # Higher limit for single operations
                 )
                 
-                importer.import_top_250_teams_historical(start_year=2000)
+                importer.import_top_250_teams_historical_enhanced(start_year=2000)
                 
                 # Update status
                 self.status['historical_imported'] = True
                 self.status['last_historical_date'] = datetime.now().isoformat()
                 self.save_status()
                 
-                print("✅ Historical data import complete!")
+                print("✅ Optimized historical data import complete!")
                 return True
                 
         except Exception as e:
@@ -188,7 +220,8 @@ class Top250Worker:
                     api_key=self.api_key,
                     current_season=datetime.now().year,
                     request_delay=0.4,
-                    max_requests_per_day=7000
+                    max_requests_per_day=7400,
+                    daily_operations_budget=1300  # Conservative budget for daily operations
                 )
                 
                 importer.update_top_250_fixtures()
@@ -209,7 +242,8 @@ class Top250Worker:
                     api_key=self.api_key,
                     current_season=datetime.now().year,
                     request_delay=0.3,
-                    max_requests_per_day=7000
+                    max_requests_per_day=7400,
+                    daily_operations_budget=1300  # Conservative budget for daily operations  
                 )
                 
                 importer.update_top_250_recent_matches()
@@ -289,9 +323,10 @@ class Top250Worker:
         self.save_status()
         
         print("📅 Scheduled jobs:")
-        print("   - Daily fixture updates: 6:00 AM UTC")
-        print("   - Recent match updates: Every 5 minutes")
-        print("   - API usage: ~300 requests/day")
+        print("   - Daily fixture updates: 6:00 AM UTC (~250 requests)")
+        print("   - Recent match updates: Every 5 minutes (5-10 teams per cycle)")
+        print("   - Total daily operations budget: 1300 requests/day")
+        print("   - Smart budget management: Automatically scales based on usage")
         print("")
         print("🔄 Scheduler running... (Press Ctrl+C to stop)")
         
@@ -389,6 +424,8 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--complete", action="store_true",
                       help="Run complete workflow (setup + scheduler)")
+    group.add_argument("--single-day", action="store_true",
+                      help="Run optimized single-day complete import under 7500 requests")
     group.add_argument("--setup", action="store_true",
                       help="Run setup only (mapping + historical import)")
     group.add_argument("--scheduler", action="store_true",
@@ -406,6 +443,10 @@ def main():
     
     if args.complete:
         worker.run_complete_workflow()
+    elif args.single_day:
+        if worker.run_single_day_complete_import():
+            print("\n🔄 Starting live updates scheduler...")
+            worker.run_scheduler()
     elif args.setup:
         worker.run_setup()
     elif args.scheduler:

@@ -107,8 +107,8 @@ start_worker() {
         return 1
     fi
     
-    # Start the worker in the background
-    nohup python3 "$WORKER_SCRIPT" --complete >> "$LOG_FILE" 2>&1 &
+    # Start the worker in the background with optimized single-day import
+    nohup python3 "$WORKER_SCRIPT" --single-day >> "$LOG_FILE" 2>&1 &
     WORKER_PID=$!
     
     # Save PID

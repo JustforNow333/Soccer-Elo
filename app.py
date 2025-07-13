@@ -76,93 +76,6 @@ def debug_teams():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/debug/elo-ratings/")
-def debug_elo_ratings():
-    try:
-        ratings = EloRating.query.all()
-        return jsonify({
-            "count": len(ratings),
-            "sample_ratings": [
-                {
-                    "team_id": rating.team_id,
-                    "rating": rating.rating,
-                    "date": rating.date.isoformat()
-                } for rating in ratings[:20]  # Show first 20
-            ]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/debug/matches/")
-def debug_matches():
-    try:
-        matches = Match.query.all()
-        return jsonify({
-            "count": len(matches),
-            "sample_matches": [
-                {
-                    "id": match.id,
-                    "date": match.date.isoformat(),
-                    "home_team_id": match.home_team_id,
-                    "away_team_id": match.away_team_id,
-                    "home_score": match.home_score,
-                    "away_score": match.away_score
-                } for match in matches[:20]  # Show first 20
-            ]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/debug/fixtures-list/")
-def debug_fixtures_list():
-    try:
-        fixtures = Fixture.query.all()
-        return jsonify({
-            "count": len(fixtures),
-            "sample_fixtures": [
-                {
-                    "id": fixture.id,
-                    "date": fixture.date.isoformat(),
-                    "home_team_name": fixture.home_team_name,
-                    "away_team_name": fixture.away_team_name,
-                    "league_name": fixture.league_name,
-                    "status": fixture.status
-                } for fixture in fixtures[:20]  # Show first 20
-            ]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/debug/summary/")
-def debug_summary():
-    """Complete database summary for checking import status"""
-    try:
-        teams_count = Team.query.count()
-        matches_count = Match.query.count()
-        ratings_count = EloRating.query.count()
-        fixtures_count = Fixture.query.count()
-        
-        return jsonify({
-            "database_summary": {
-                "teams": teams_count,
-                "matches": matches_count,
-                "elo_ratings": ratings_count,
-                "fixtures": fixtures_count
-            },
-            "status": {
-                "teams_imported": teams_count > 0,
-                "matches_imported": matches_count > 0,
-                "ratings_calculated": ratings_count > 0,
-                "fixtures_fetched": fixtures_count > 0
-            },
-            "recommendations": {
-                "need_import": teams_count == 0,
-                "ready_for_use": teams_count > 0 and matches_count > 0 and ratings_count > 0
-            }
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/debug/team-names/")
 def debug_team_names():
     """Show actual team names in database for debugging fixture matching"""
@@ -628,44 +541,55 @@ def handle_payment_failed(invoice):
     except Exception as e:
         print(f"Error handling payment failed: {str(e)}")
         raise
+
+
+@app.route("/api/cancel-subscription", methods=["POST"])
+def cancel_subscription():
+    data = request.get_json()
+    email = data.get("email")
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user or not user.stripe_subscription_id:
+        return jsonify({"error": "Active subscription not found"}), 404
+
+    stripe_client = get_stripe()
+    if not stripe_client:
+        return jsonify({"error": "Payment system not configured"}), 500
+
+    try:
+        # Cancel the Stripe subscription immediately
+        stripe_client.Subscription.delete(user.stripe_subscription_id)
+        user.subscription_status = "canceled"
+        user.subscription_end_date = datetime.utcnow()
+        db.session.commit()
+        return jsonify({"message": "Subscription canceled successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
 def update_elo_after_match(match_id, k=20):
-    """Update ELO ratings for both teams after a match"""
-    try:
-        match = Match.query.get(match_id)
-        if not match:
-            raise ValueError(f"Match with ID {match_id} not found")
+    match = Match.query.get(match_id)
+    if not match:
+        return jsonify({"error": "Match not found"}), 404
 
-        home_team = Team.query.get(match.home_team_id)
-        away_team = Team.query.get(match.away_team_id)
+    home_team = Team.query.get(match.home_team_id)
+    away_team = Team.query.get(match.away_team_id)
 
-        if home_team is None or away_team is None:
-            raise ValueError("Home or away team not found")
+    if home_team is None or away_team is None:
+        return {"error": "Home or away team not found"}, 400
 
-        # Get latest ratings for both teams
-        home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
-        away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
+    home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
+    away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
 
-        # Calculate match results (1, 0.5, or 0 for each team)
-        home_score, away_score = get_match_result(match.home_score, match.away_score)
-        home_rating_val = home_rating.rating if home_rating else 1000
-        away_rating_val = away_rating.rating if away_rating else 1000
+    home_score, away_score = get_match_result(match.home_score, match.away_score)
+    home_rating_val = home_rating.rating if home_rating else 1000
+    away_rating_val = away_rating.rating if away_rating else 1000
 
-        # Calculate new ratings
-        new_home_rating = update_elo(home_rating_val, away_rating_val, home_score, k)
-        new_away_rating = update_elo(away_rating_val, home_rating_val, away_score, k)
-
-        # Add new ratings to database
-        db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=new_home_rating))
-        db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=new_away_rating))
-        
-        return {
-            "home_team_new_rating": new_home_rating,
-            "away_team_new_rating": new_away_rating
-        }
-    except Exception as e:
-        db.session.rollback()
-        raise e
+    db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=update_elo(home_rating_val, away_rating_val, home_score, k)))
+    db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=update_elo(away_rating_val, home_rating_val, away_score, k)))
+    db.session.commit()
+    return {"message": "Elo updated"}, 200
 
 # NO scheduler runs at startup anymore
 
@@ -811,102 +735,6 @@ def get_strategic_betting_opportunities():
             },
             "message": f"Found {len(opportunities)} betting opportunities from {len(relevant_fixtures)} upcoming fixtures"
         })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/cancel-subscription", methods=["POST"])
-def cancel_subscription():
-    """Cancel a user's subscription"""
-    try:
-        data = request.get_json()
-        email = data.get("email")
-        
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
-        
-        # Find the user
-        user = User.query.filter_by(email=email).first()
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-        
-        # Check if user has an active subscription
-        if not user.stripe_subscription_id:
-            return jsonify({"error": "No active subscription found"}), 400
-        
-        if user.subscription_status in ["canceled", "inactive"]:
-            return jsonify({"error": "Subscription is already canceled or inactive"}), 400
-        
-        # Get Stripe client
-        stripe_client = get_stripe()
-        if not stripe_client:
-            return jsonify({"error": "Payment system not configured"}), 500
-        
-        # Cancel subscription in Stripe
-        try:
-            canceled_subscription = stripe_client.Subscription.cancel(
-                user.stripe_subscription_id
-            )
-            
-            # Update user in database
-            user.subscription_status = "canceled"
-            user.subscription_end_date = datetime.utcnow()
-            db.session.commit()
-            
-            return jsonify({
-                "message": "Subscription canceled successfully",
-                "subscription": {
-                    "id": canceled_subscription.id,
-                    "status": canceled_subscription.status,
-                    "canceled_at": canceled_subscription.canceled_at,
-                    "current_period_end": canceled_subscription.current_period_end
-                }
-            }), 200
-            
-        except Exception as stripe_error:
-            print(f"Stripe cancellation error: {str(stripe_error)}")
-            return jsonify({"error": f"Failed to cancel subscription: {str(stripe_error)}"}), 500
-        
-    except Exception as e:
-        print(f"Cancel subscription error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/subscription-status", methods=["POST"])
-def get_subscription_status():
-    """Get detailed subscription status for a user"""
-    try:
-        data = request.get_json()
-        email = data.get("email")
-        
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
-        
-        user = User.query.filter_by(email=email).first()
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-        
-        # Get additional info from Stripe if available
-        subscription_details = None
-        if user.stripe_subscription_id:
-            stripe_client = get_stripe()
-            if stripe_client:
-                try:
-                    subscription = stripe_client.Subscription.retrieve(user.stripe_subscription_id)
-                    subscription_details = {
-                        "id": subscription.id,
-                        "status": subscription.status,
-                        "current_period_start": subscription.current_period_start,
-                        "current_period_end": subscription.current_period_end,
-                        "canceled_at": subscription.canceled_at,
-                        "cancel_at_period_end": subscription.cancel_at_period_end
-                    }
-                except Exception as e:
-                    print(f"Error retrieving subscription from Stripe: {e}")
-        
-        return jsonify({
-            "user": user.serialize(),
-            "subscription_details": subscription_details
-        }), 200
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500

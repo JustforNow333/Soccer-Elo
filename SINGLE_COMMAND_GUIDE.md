@@ -131,11 +131,34 @@ cd /path/to/your/project
 
 ## 📈 **API Usage Breakdown**
 
+### **🚀 NEW: Safe Single-Day Import with Operations Budget**
+| Phase | Requests | When | Coverage |
+|-------|----------|------|----------|
+| **Team Mapping** | ~100 | One-time (optimized batch processing) | All 250 teams |
+| **Historical Import** | ~5,800 | One-time (modern-biased sampling) | 17+ years total |
+| **Current Fixtures** | ~50 | One-time | Next week |
+| **Daily Operations Budget** | ~1,300 | Reserved for ongoing updates | Live operations |
+| **Safety Buffer** | ~250 | Reserved for emergencies | Safety margin |
+| **Total First Day** | **~7,300** | **✅ Under 7500 limit!** | **Safe + comprehensive** |
+
+### **📅 Safe Historical Coverage Strategy:**
+- **🔥 Recent (2019+)**: 7 years - **FULL** coverage (every year)
+- **⚡ Modern (2010-2018)**: 6+ years - **DENSE** coverage (every 1-2 years)  
+- **📚 Historical (2000-2009)**: 4+ years - **SELECTIVE** coverage (every 2 years)
+- **📊 Total**: 17+ years of data with modern bias (reduced to preserve operations budget)
+
+### **🔄 Daily Operations Budget (1300 requests):**
+- **Daily fixture updates**: ~250 requests (once per day at 6 AM UTC)
+- **5-minute match updates**: 5-10 teams per cycle = ~1000 requests/day
+- **Buffer for peak usage**: ~50 requests
+- **Smart scaling**: Automatically adjusts team count based on remaining budget
+
+### **Traditional Multi-Day Import**
 | Phase | Requests | When |
 |-------|----------|------|
-| **Setup** | ~5,300 | One-time |
+| **Setup** | ~5,300 | One-time (spread over days) |
 | **Daily** | ~300 | Every day |
-| **Total** | ~5,600 | First run |
+| **Total** | ~5,600 | Multiple days |
 
 ## 🚦 **Quick Start**
 
