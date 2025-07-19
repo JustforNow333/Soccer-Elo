@@ -441,6 +441,117 @@ def debug_api_check():
     
     return jsonify(result)
 
+@app.route("/debug/leagues-structure")
+def debug_leagues_structure():
+    """Debug endpoint to examine actual leagues API response structure"""
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    
+    if not api_key:
+        return jsonify({"error": "API_FOOTBALL_KEY not found"}), 500
+    
+    # Test leagues endpoint
+    url = "https://v3.football.api-sports.io/leagues"
+    headers = {
+        "x-apisports-key": api_key,
+        "x-apisports-host": "v3.football.api-sports.io"
+    }
+    
+    current_season = datetime.now().year
+    params = {
+        "season": str(current_season)
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            leagues = data.get("response", [])
+            
+            result = {
+                "total_leagues": len(leagues),
+                "sample_leagues": leagues[:3] if leagues else [],
+                "analysis": {}
+            }
+            
+            if leagues:
+                # Analyze structure
+                first_league = leagues[0]
+                league = first_league.get("league", {})
+                country = first_league.get("country", {})
+                seasons = first_league.get("seasons", [])
+                
+                result["structure"] = {
+                    "league_keys": list(league.keys()),
+                    "country_keys": list(country.keys()),
+                    "has_seasons": len(seasons) > 0
+                }
+                
+                if seasons:
+                    current_season_data = None
+                    for season in seasons:
+                        if season.get("year") == current_season:
+                            current_season_data = season
+                            break
+                    
+                    if current_season_data:
+                        coverage = current_season_data.get("coverage", {})
+                        result["current_season_structure"] = {
+                            "season_keys": list(current_season_data.keys()),
+                            "coverage_keys": list(coverage.keys()),
+                            "coverage_values": coverage
+                        }
+                
+                # Count leagues by type and coverage
+                league_types = {}
+                coverage_odds = 0
+                world_leagues = 0
+                valid_leagues = 0
+                
+                for league_data in leagues:
+                    league = league_data.get("league", {})
+                    country = league_data.get("country", {})
+                    seasons = league_data.get("seasons", [])
+                    
+                    league_type = league.get("type", "unknown")
+                    league_types[league_type] = league_types.get(league_type, 0) + 1
+                    
+                    if country.get("name") == "World":
+                        world_leagues += 1
+                    
+                    # Check if it would pass our new filter
+                    league_type = league.get("type", "").lower()
+                    if (league_type in ["league", "cup"] and
+                        country.get("name") not in ["World", None] and
+                        league.get("name") and league.get("id")):
+                        valid_leagues += 1
+                    
+                    # Check coverage
+                    for season in seasons:
+                        if season.get("year") == current_season:
+                            coverage = season.get("coverage", {})
+                            if coverage.get("odds", False):
+                                coverage_odds += 1
+                            break
+                
+                result["analysis"] = {
+                    "league_types": league_types,
+                    "leagues_with_odds_coverage": coverage_odds,
+                    "world_leagues": world_leagues,
+                    "leagues_passing_new_filter": valid_leagues,
+                    "leagues_passing_old_filter": 0  # We know this was 0
+                }
+            
+            return jsonify(result)
+        else:
+            return jsonify({
+                "error": f"API Error: {response.status_code}",
+                "response": response.text
+            }), 500
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
     try:

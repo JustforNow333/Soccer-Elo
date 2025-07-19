@@ -285,6 +285,7 @@ class APIFootballImporter:
             return []
         
         leagues = data.get("response", [])
+        print(f"📊 Raw leagues received: {len(leagues)}")
         
         # Filter leagues based on requirements
         filtered_leagues = []
@@ -305,10 +306,11 @@ class APIFootballImporter:
             
             coverage = current_season_data.get("coverage", {})
             
-            # Apply filters
-            if (coverage.get("odds", False) and 
-                league.get("type") in ["league", "cup"] and
-                country.get("name") != "World"):  # Focus on national leagues
+            # Apply filters - be more permissive to ensure we get leagues
+            league_type = league.get("type", "").lower()
+            if (league_type in ["league", "cup"] and
+                country.get("name") not in ["World", None] and
+                league.get("name") and league.get("id")):  # Basic validity checks
                 
                 filtered_leagues.append({
                     "id": league.get("id"),
@@ -329,8 +331,16 @@ class APIFootballImporter:
         
         filtered_leagues.sort(key=league_priority, reverse=True)
         
+        print(f"📊 Leagues after filtering: {len(filtered_leagues)}")
+        
         top_leagues = filtered_leagues[:limit]
         print(f"✅ Found {len(top_leagues)} qualifying leagues")
+        
+        # Debug: show first few leagues
+        if top_leagues:
+            print("📋 Sample qualifying leagues:")
+            for i, league in enumerate(top_leagues[:5]):
+                print(f"   {i+1}. {league['name']} ({league['country']})")
         
         return top_leagues
     
