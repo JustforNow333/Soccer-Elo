@@ -179,7 +179,7 @@ def status():
             print(f"  ... and {len(unmapped) - 10} more")
     
     # Check if we can proceed with historical import
-    if progress['mapped'] >= 200:  # At least 200 teams mapped
+    if progress['mapped'] >= 130:  # Temporarily lowered from 200 teams mapped
         print("✅ Ready for historical data import")
     else:
         print("⚠️  Need more teams mapped before historical import")

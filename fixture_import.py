@@ -110,7 +110,26 @@ def process_and_store_fixtures(api_fixtures):
             league_info = fixture_data.get("league", {})
 
             api_fixture_id = fixture_info.get("id")
-            fixture_date = datetime.fromisoformat(fixture_info.get("date").replace("Z", "+00:00"))
+            
+            # Fixed: Safe date parsing with proper timezone handling
+            date_str = fixture_info.get("date")
+            if not date_str:
+                print(f"⚠️  Skipping fixture {api_fixture_id} - missing date")
+                continue
+                
+            try:
+                # Handle various date formats safely
+                if date_str.endswith("Z"):
+                    fixture_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                elif "+00:00" in date_str:
+                    fixture_date = datetime.fromisoformat(date_str)
+                else:
+                    # Assume UTC if no timezone specified
+                    fixture_date = datetime.fromisoformat(date_str + "+00:00")
+            except (ValueError, TypeError) as e:
+                print(f"⚠️  Skipping fixture {api_fixture_id} - invalid date format: {date_str}")
+                continue
+            
             status = fixture_info.get("status", {}).get("short", "NS")
             venue = fixture_info.get("venue", {}).get("name", "")
 

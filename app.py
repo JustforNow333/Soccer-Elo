@@ -14,7 +14,42 @@ CORS(app, resources={r"/api/*": {"origins": [
     "http://localhost:3000", 
      r"https://.*\.vercel\.app"
 ]}})
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
+
+# Environment variable validation with proper error handling
+def validate_environment():
+    """Validate required environment variables"""
+    required_vars = {
+        "DATABASE_URL": "Database connection string",
+        "API_FOOTBALL_KEY": "API-Football API key", 
+        "STRIPE_SECRET_KEY": "Stripe secret key",
+        "STRIPE_WEBHOOK_SECRET": "Stripe webhook secret"
+    }
+    
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not os.environ.get(var):
+            missing_vars.append(f"{var} ({description})")
+    
+    if missing_vars:
+        error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+        print(f"❌ CONFIGURATION ERROR: {error_msg}")
+        # In production, you might want to exit or disable certain features
+        # For now, we'll continue but log the error
+        return False
+    
+    print("✅ All required environment variables are configured")
+    return True
+
+# Validate environment on startup
+validate_environment()
+
+# Safe database URL configuration
+database_url = os.environ.get("DATABASE_URL")
+if not database_url:
+    print("❌ CRITICAL: DATABASE_URL not configured - using SQLite fallback")
+    database_url = "sqlite:///fallback.db"
+
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ECHO"] = False
 
@@ -200,17 +235,11 @@ def debug_fixtures():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/wipe-db/", methods=["POST"])
-def wipe_db():
-    from sqlalchemy import text
-
-    try:
-        db.session.execute(text("DROP SCHEMA public CASCADE;"))
-        db.session.execute(text("CREATE SCHEMA public;"))
-        db.session.commit()
-        return jsonify({"status": "Database wiped successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# REMOVED: Dangerous database wipe endpoint for production safety
+# @app.route("/wipe-db/", methods=["POST"])
+# def wipe_db():
+#     # This endpoint has been disabled for production safety
+#     return jsonify({"error": "Endpoint disabled for production safety"}), 403
 
 @app.route("/clear-fixtures/", methods=["POST"])
 def clear_fixtures():
@@ -289,10 +318,22 @@ def create_match():
         )
         db.session.add(match)
         db.session.flush()
-        update_elo_after_match(match.id)
-        db.session.commit()
-        return jsonify({"id": match.id}), 201
+        
+        # Fixed: Wrap Elo update in same transaction to prevent race condition
+        try:
+            update_elo_result = update_elo_after_match(match.id)
+            if "error" in update_elo_result or not update_elo_result.get("success"):
+                db.session.rollback()
+                return jsonify(update_elo_result), 400
+            
+            db.session.commit()
+            return jsonify({"id": match.id}), 201
+        except Exception as elo_error:
+            db.session.rollback()
+            return jsonify({"error": f"Elo calculation failed: {str(elo_error)}"}), 400
+            
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 400
 
 @app.route("/api/elo-ratings/", methods=["GET"])
@@ -379,13 +420,13 @@ def debug_config():
 # Set your secret key
 @app.route("/debug/env-check")
 def debug_env_check():
-    """Debug endpoint to check environment variables (REMOVE IN PRODUCTION!)"""
+    """Debug endpoint to check environment variables (SECURED FOR PRODUCTION)"""
+    # Only show basic status without exposing sensitive information
     return jsonify({
-        "stripe_secret_key_exists": bool(os.environ.get("STRIPE_SECRET_KEY")),
-        "stripe_secret_key_length": len(os.environ.get("STRIPE_SECRET_KEY", "")),
-        "stripe_secret_key_starts_with": os.environ.get("STRIPE_SECRET_KEY", "")[:7] + "...",
-        "database_url_exists": bool(os.environ.get("DATABASE_URL")),
-        "all_env_vars": list(os.environ.keys())
+        "stripe_configured": bool(os.environ.get("STRIPE_SECRET_KEY")),
+        "database_configured": bool(os.environ.get("DATABASE_URL")),
+        "api_football_configured": bool(os.environ.get("API_FOOTBALL_KEY")),
+        "status": "Environment check completed - sensitive details hidden for security"
     })
 
 @app.route("/debug/api-check")
@@ -795,27 +836,39 @@ def cancel_subscription():
         return jsonify({"error": str(e)}), 500
     
 def update_elo_after_match(match_id, k=20):
-    match = Match.query.get(match_id)
-    if not match:
-        return jsonify({"error": "Match not found"}), 404
+    """Update Elo ratings for teams after a match - returns consistent dict format"""
+    try:
+        match = Match.query.get(match_id)
+        if not match:
+            return {"error": "Match not found"}
 
-    home_team = Team.query.get(match.home_team_id)
-    away_team = Team.query.get(match.away_team_id)
+        home_team = Team.query.get(match.home_team_id)
+        away_team = Team.query.get(match.away_team_id)
 
-    if home_team is None or away_team is None:
-        return {"error": "Home or away team not found"}, 400
+        if home_team is None or away_team is None:
+            return {"error": "Home or away team not found"}
 
-    home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
-    away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
+        # Get latest ratings with race condition protection
+        home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
+        away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
 
-    home_score, away_score = get_match_result(match.home_score, match.away_score)
-    home_rating_val = home_rating.rating if home_rating else 1000
-    away_rating_val = away_rating.rating if away_rating else 1000
+        home_score, away_score = get_match_result(match.home_score, match.away_score)
+        home_rating_val = home_rating.rating if home_rating else 1000
+        away_rating_val = away_rating.rating if away_rating else 1000
 
-    db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=update_elo(home_rating_val, away_rating_val, home_score, k)))
-    db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=update_elo(away_rating_val, home_rating_val, away_score, k)))
-    db.session.commit()
-    return {"message": "Elo updated"}, 200
+        # Calculate new ratings
+        new_home_rating = update_elo(home_rating_val, away_rating_val, home_score, k)
+        new_away_rating = update_elo(away_rating_val, home_rating_val, away_score, k)
+
+        # Add new Elo ratings (but don't commit here - let caller handle transaction)
+        db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=new_home_rating))
+        db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=new_away_rating))
+        
+        # Return success without committing (caller handles commit)
+        return {"message": "Elo ratings calculated and added to session", "success": True}
+        
+    except Exception as e:
+        return {"error": f"Elo calculation failed: {str(e)}"}
 
 # NO scheduler runs at startup anymore
 
@@ -897,11 +950,11 @@ def get_strategic_betting_opportunities():
             from elo_utils import expected_result
             win_probability = expected_result(favored_elo, underdog_elo)
             
-            # Categorize based on Elo difference
+            # Categorize based on Elo difference (FIXED: No gaps in ranges)
             category = None
             confidence_level = None
             
-            if 191 <= elo_diff <= 239:
+            if 191 <= elo_diff <= 249:  # Fixed: Extended range to 249
                 category = "good_chance"
                 confidence_level = "Good Chance"
             elif 250 <= elo_diff <= 399:

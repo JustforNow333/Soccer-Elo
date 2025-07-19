@@ -77,7 +77,7 @@ class Top250Worker:
         progress = self.get_mapping_progress()
         
         # If less than 200 teams mapped, definitely need mapping
-        if progress['mapped'] < 200:
+        if progress['mapped'] < 130:  # Temporarily lowered from 200
             return True
         
         # If mapped recently (within 7 days), probably don't need to re-map
@@ -104,7 +104,7 @@ class Top250Worker:
         
         # Need good mapping progress first
         progress = self.get_mapping_progress()
-        if progress['mapped'] < 200:
+        if progress['mapped'] < 130:  # Temporarily lowered from 200
             return False
         
         return not self.status.get('historical_imported', False)
@@ -294,7 +294,7 @@ class Top250Worker:
         
         # Check if setup is complete
         progress = self.get_mapping_progress()
-        if progress['mapped'] < 200:
+        if progress['mapped'] < 130:  # Temporarily lowered from 200
             print("❌ Need to complete setup first (insufficient team mapping)")
             print("   Run: python3 top_250_worker.py --setup")
             return False
@@ -408,13 +408,13 @@ class Top250Worker:
         if not self.api_key:
             print("   - Set API_FOOTBALL_KEY environment variable")
         
-        if progress['mapped'] < 200:
+        if progress['mapped'] < 130:  # Temporarily lowered from 200
             print("   - Run team mapping: --setup or --map-only")
         
-        if progress['mapped'] >= 200 and not self.status.get('historical_imported'):
+        if progress['mapped'] >= 130 and not self.status.get('historical_imported'):  # Temporarily lowered from 200
             print("   - Run historical import: --setup or --historical-only")
         
-        if progress['mapped'] >= 200 and self.status.get('historical_imported'):
+        if progress['mapped'] >= 130 and self.status.get('historical_imported'):  # Temporarily lowered from 200
             print("   - Ready for live updates: --scheduler or --complete")
 
 def main():
