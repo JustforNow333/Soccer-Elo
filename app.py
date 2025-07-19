@@ -54,6 +54,68 @@ except ImportError as e:
 
 db.init_app(app)
 
+# API Debug on startup
+def debug_api_on_startup():
+    """Debug API connection on app startup"""
+    print("\n" + "="*60)
+    print("🔍 API DEBUG CHECK ON STARTUP")
+    print("="*60)
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    print(f"API Key present: {'Yes' if api_key else 'No'}")
+    if api_key:
+        print(f"API Key length: {len(api_key)}")
+        print(f"API Key prefix: {api_key[:8]}...")
+    else:
+        print("❌ API_FOOTBALL_KEY environment variable not found!")
+        return
+    
+    # Test API status
+    url = "https://v3.football.api-sports.io/status"
+    headers = {
+        "x-apisports-key": api_key,
+        "x-apisports-host": "v3.football.api-sports.io"
+    }
+    
+    try:
+        print("🔄 Testing API connection...")
+        import requests
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        print(f"HTTP Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            print("✅ API Status Response:")
+            print(f"   Account: {data.get('response', {}).get('account', {})}")
+            print(f"   Requests: {data.get('response', {}).get('requests', {})}")
+            
+            # Test simple team request
+            team_url = "https://v3.football.api-sports.io/teams"
+            team_params = {"league": "39", "season": "2024"}  # Premier League
+            team_response = requests.get(team_url, headers=headers, params=team_params, timeout=15)
+            
+            if team_response.status_code == 200:
+                team_data = team_response.json()
+                teams = team_data.get("response", [])
+                print(f"✅ Team data test: Found {len(teams)} Premier League teams")
+                print("🎉 API is working correctly!")
+            else:
+                print(f"❌ Team request failed: {team_response.status_code}")
+                print(f"   Response: {team_response.text}")
+        else:
+            print(f"❌ API Status Error:")
+            print(f"   Headers: {dict(response.headers)}")
+            print(f"   Body: {response.text}")
+            
+    except Exception as e:
+        print(f"❌ API Connection Error: {e}")
+    
+    print("="*60)
+
+# Run API debug check on startup
+debug_api_on_startup()
+
 @app.before_request
 def log_request_info():
     if request.path.startswith('/api/') and request.method == 'POST':
@@ -325,6 +387,59 @@ def debug_env_check():
         "database_url_exists": bool(os.environ.get("DATABASE_URL")),
         "all_env_vars": list(os.environ.keys())
     })
+
+@app.route("/debug/api-check")
+def debug_api_check():
+    """Debug endpoint to check API-Football connection"""
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    
+    result = {
+        "api_key_present": bool(api_key),
+        "api_key_length": len(api_key) if api_key else 0,
+        "api_key_prefix": api_key[:8] + "..." if api_key else "N/A"
+    }
+    
+    if not api_key:
+        result["error"] = "API_FOOTBALL_KEY environment variable not found"
+        return jsonify(result), 500
+    
+    # Test API status
+    url = "https://v3.football.api-sports.io/status"
+    headers = {
+        "x-apisports-key": api_key,
+        "x-apisports-host": "v3.football.api-sports.io"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        result["status_code"] = response.status_code
+        
+        if response.status_code == 200:
+            data = response.json()
+            result["api_status"] = "working"
+            result["account_info"] = data.get("response", {}).get("account", {})
+            result["requests_info"] = data.get("response", {}).get("requests", {})
+            
+            # Test team request
+            team_url = "https://v3.football.api-sports.io/teams"
+            team_params = {"league": "39", "season": "2024"}
+            team_response = requests.get(team_url, headers=headers, params=team_params, timeout=15)
+            
+            if team_response.status_code == 200:
+                team_data = team_response.json()
+                teams = team_data.get("response", [])
+                result["team_test"] = f"Success - Found {len(teams)} Premier League teams"
+            else:
+                result["team_test"] = f"Failed - {team_response.status_code}: {team_response.text}"
+        else:
+            result["api_status"] = "error"
+            result["error_response"] = response.text
+            
+    except Exception as e:
+        result["api_status"] = "connection_error"
+        result["error"] = str(e)
+    
+    return jsonify(result)
 
 @app.route("/api/create-checkout-session", methods=["POST"])
 def create_checkout_session():
