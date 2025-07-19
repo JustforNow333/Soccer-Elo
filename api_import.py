@@ -233,8 +233,8 @@ class APIFootballImporter:
             self.requests_made = 0
             self.request_log_file = f"api_requests_{self.request_date.strftime('%Y%m%d')}.log"
     
-    def _make_request(self, endpoint: str, params: dict = None) -> Optional[dict]:
-        """Make throttled API request with error handling"""
+    def _make_request(self, endpoint: str, params: dict = None, retry_count: int = 0) -> Optional[dict]:
+        """Make throttled API request with error handling and rate limit management"""
         self._check_daily_reset()
         
         if self.requests_made >= self.max_requests_per_day:
@@ -258,12 +258,38 @@ class APIFootballImporter:
             # Log the request
             self._log_request(endpoint, response.status_code)
             
+            # Handle rate limit headers
+            if 'x-ratelimit-requests-remaining' in response.headers:
+                remaining_per_minute = int(response.headers.get('x-ratelimit-requests-remaining', 0))
+                if remaining_per_minute <= 5:  # Near minute limit
+                    print(f"⚠️  Near minute rate limit, slowing down...")
+                    time.sleep(5)  # Wait 5 seconds
+            
             if response.status_code == 200:
                 data = response.json()
                 if data.get("errors"):
                     print(f"❌ API Error: {data['errors']}")
                     return None
+                
+                # Log pagination info if available
+                paging = data.get("paging", {})
+                if paging:
+                    current_page = paging.get("current", 1)
+                    total_pages = paging.get("total", 1)
+                    if total_pages > 1:
+                        print(f"📄 Page {current_page}/{total_pages} - {len(data.get('response', []))} items")
+                
                 return data
+            elif response.status_code == 429:
+                # Rate limit exceeded - implement exponential backoff
+                if retry_count < 3:
+                    wait_time = (2 ** retry_count) * 60  # 1min, 2min, 4min
+                    print(f"⚠️  Rate limit exceeded (429), waiting {wait_time} seconds before retry {retry_count + 1}/3...")
+                    time.sleep(wait_time)
+                    return self._make_request(endpoint, params, retry_count + 1)
+                else:
+                    print(f"❌ Rate limit exceeded after 3 retries, giving up")
+                    return None
             else:
                 print(f"❌ HTTP {response.status_code}: {response.text}")
                 return None
@@ -271,6 +297,43 @@ class APIFootballImporter:
         except Exception as e:
             print(f"❌ Request failed: {str(e)}")
             return None
+    
+    def _make_paginated_request(self, endpoint: str, params: dict = None, max_pages: int = 5) -> List[dict]:
+        """Make paginated API requests to get all data across multiple pages"""
+        all_data = []
+        page = 1
+        
+        while page <= max_pages:
+            # Add page parameter
+            paginated_params = (params or {}).copy()
+            paginated_params["page"] = str(page)
+            
+            data = self._make_request(endpoint, paginated_params)
+            if not data:
+                break
+                
+            response_items = data.get("response", [])
+            if not response_items:
+                break
+                
+            all_data.extend(response_items)
+            
+            # Check pagination info
+            paging = data.get("paging", {})
+            total_pages = paging.get("total", 1)
+            current_page = paging.get("current", 1)
+            
+            if current_page >= total_pages:
+                break
+                
+            page += 1
+            
+            # Stop if we're approaching request limits
+            if self.requests_made >= self.max_requests_per_day - 20:
+                print(f"⚠️  Stopping pagination - approaching request limit")
+                break
+        
+        return all_data
     
     def get_top_leagues(self, limit: int = 100) -> List[dict]:
         """Fetch top leagues with coverage filters"""
@@ -727,7 +790,8 @@ class APIFootballImporter:
             "season": str(season),
             "from": from_date.strftime("%Y-%m-%d"),
             "to": to_date.strftime("%Y-%m-%d"),
-            "timezone": "UTC"
+            "timezone": "UTC",
+            "status": "1H-HT-2H-ET-BT-P-FT"  # Only get live and finished matches for updates
         }
         
         data = self._make_request("fixtures", params)
@@ -1567,7 +1631,12 @@ class APIFootballImporter:
                 break
             
             # Get upcoming fixtures for this team
-            fixtures = self.get_team_fixtures_in_range(team_id, from_date, to_date)
+            fixtures = self.get_team_fixtures_in_range(
+                team_id, 
+                from_date, 
+                to_date, 
+                status_filter="NS"  # Only upcoming matches
+            )
             
             for fixture_data in fixtures:
                 self.process_fixture(fixture_data, "Upcoming")
@@ -1581,14 +1650,19 @@ class APIFootballImporter:
         self.commit_batched_data()
         print(f"✅ Updated {fixtures_updated} fixtures for upcoming week")
     
-    def get_team_fixtures_in_range(self, team_id: int, from_date: datetime, to_date: datetime) -> List[dict]:
+    def get_team_fixtures_in_range(self, team_id: int, from_date: datetime, to_date: datetime, status_filter: str = None) -> List[dict]:
         """Get fixtures for a team within a specific date range"""
         params = {
             "team": str(team_id),
+            "season": str(self.current_season),
             "from": from_date.strftime("%Y-%m-%d"),
             "to": to_date.strftime("%Y-%m-%d"),
             "timezone": "UTC"
         }
+        
+        # Add status filter if provided (e.g., "NS" for upcoming, "FT" for finished, "1H-HT-2H" for live)
+        if status_filter:
+            params["status"] = status_filter
         
         data = self._make_request("fixtures", params)
         if not data:
@@ -1661,15 +1735,17 @@ class APIFootballImporter:
                 print(f"⚠️  Stopping match update - approaching request limit")
                 break
             
-            # Get recent fixtures
-            fixtures = self.get_team_fixtures_in_range(team_id, from_date, to_date)
+            # Get recent fixtures with status filter for live and finished matches
+            fixtures = self.get_team_fixtures_in_range(
+                team_id, 
+                from_date, 
+                to_date, 
+                status_filter="1H-HT-2H-ET-BT-P-FT"  # Only live and finished matches
+            )
             
             for fixture_data in fixtures:
-                # Only process if match is finished or live
-                status = fixture_data.get("status", "NS")
-                if status in ["FT", "1H", "HT", "2H", "ET", "BT", "P", "SUSP", "INT"]:
-                    self.process_fixture(fixture_data, "Recent")
-                    matches_updated += 1
+                self.process_fixture(fixture_data, "Recent")
+                matches_updated += 1
         
         # Commit updates
         self.commit_batched_data()
