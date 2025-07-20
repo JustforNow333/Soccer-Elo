@@ -503,28 +503,51 @@ class APIFootballImporter:
         if not normalized_name:
             return None
         
-        # Check if team already exists
-        existing_team = Team.query.filter_by(name=normalized_name).first()
+        # Check if team already exists by both name and api_football_id
+        existing_team = Team.query.filter(
+            (Team.name == normalized_name) | 
+            (Team.api_football_id == api_team_id)
+        ).first()
         
         if existing_team:
-            # Update league if different
+            # Update league and api_football_id if different
+            updated = False
             if existing_team.league != league_name:
                 existing_team.league = league_name
-                db.session.commit()
+                updated = True
+            if not existing_team.api_football_id and api_team_id:
+                existing_team.api_football_id = api_team_id
+                updated = True
+            
+            if updated:
+                try:
+                    db.session.commit()
+                    print(f"🔄 Updated team: {normalized_name}")
+                except Exception as e:
+                    print(f"❌ Failed to update team {normalized_name}: {e}")
+                    db.session.rollback()
+            
+            self.cached_teams.add(api_team_id)
             return existing_team
         
-        # Create new team
+        # Create new team - commit immediately instead of batching
         team = Team(
             name=normalized_name,
             league=league_name,
             api_football_id=api_team_id
         )
         
-        self.teams_batch.append(team)
-        self.cached_teams.add(api_team_id)
-        self.stats["teams_created"] += 1
-        
-        return team
+        try:
+            db.session.add(team)
+            db.session.commit()
+            print(f"✅ Created team: {normalized_name} in {league_name}")
+            self.cached_teams.add(api_team_id)
+            self.stats["teams_created"] += 1
+            return team
+        except Exception as e:
+            print(f"❌ Failed to create team {normalized_name}: {e}")
+            db.session.rollback()
+            return None
     
     def process_fixture(self, fixture_data: dict, league_name: str) -> bool:
         """Process a single fixture and create database records"""
