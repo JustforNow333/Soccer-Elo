@@ -1900,5 +1900,63 @@ def main():
             )
 
 
+def test_api_import_small():
+    """
+    Small test import for verifying the fix - imports just 1 league with 3 teams
+    Uses minimal API requests (~2-3 requests total)
+    """
+    print("🧪 Running small API import test...")
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY environment variable is required!")
+        return False
+    
+    try:
+        from app import app
+        with app.app_context():
+            db.create_all()
+            
+            # Initialize with very conservative settings
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=1.0,  # Slow to be safe
+                max_requests_per_day=7500
+            )
+            
+            # Test with Premier League only, 3 teams max
+            print("🔄 Testing with Premier League (3 teams max)...")
+            premier_league = {"id": 39, "name": "Premier League"}
+            
+            importer.import_league_data(premier_league, max_teams=3)
+            
+            # Check if teams were created
+            from db import Team
+            team_count = Team.query.count()
+            
+            print(f"📊 Test Results:")
+            print(f"   Teams created: {team_count}")
+            print(f"   API requests used: {importer.requests_made}")
+            
+            if team_count > 0:
+                print("✅ Test PASSED - Teams were successfully created!")
+                
+                # Show created teams
+                teams = Team.query.limit(5).all()
+                print("📋 Created teams:")
+                for team in teams:
+                    print(f"   - {team.name} ({team.league})")
+                
+                return True
+            else:
+                print("❌ Test FAILED - No teams were created")
+                return False
+                
+    except Exception as e:
+        print(f"❌ Test failed with error: {str(e)}")
+        return False
+
+
 if __name__ == "__main__":
     main() 

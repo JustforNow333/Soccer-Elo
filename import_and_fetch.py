@@ -189,6 +189,19 @@ def api_import_test():
             print(f"❌ Test import failed: {str(e)}", flush=True)
             return False
 
+def api_import_test_small():
+    """Small test - just 1 league, 3 teams (uses ~2-3 API requests)"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available", flush=True)
+        return False
+    
+    try:
+        from api_import import test_api_import_small
+        return test_api_import_small()
+    except Exception as e:
+        print(f"❌ Small test import failed: {str(e)}", flush=True)
+        return False
+
 
 def import_all_once_enhanced():
     """Enhanced startup import that can use both CSV and API"""
@@ -311,6 +324,8 @@ def main():
                        help="Run startup import before scheduling")
     parser.add_argument("--test-api", action="store_true",
                        help="Test API import and exit")
+    parser.add_argument("--test-api-small", action="store_true",
+                       help="Small API test (1 league, 3 teams, ~2-3 requests)")
     parser.add_argument("--test-csv", action="store_true",
                        help="Test CSV import and exit")
     parser.add_argument("--test-frequent", action="store_true",
@@ -365,6 +380,15 @@ def main():
                 print("✅ API import test successful!", flush=True)
             else:
                 print("❌ API import test failed!", flush=True)
+            return
+            
+        if args.test_api_small:
+            print("🧪 Testing small API import (1 league, 3 teams)...", flush=True)
+            if api_import_test_small():
+                print("✅ Small API import test successful!", flush=True)
+                print("🎯 Teams are now being saved to database properly!")
+            else:
+                print("❌ Small API import test failed!", flush=True)
             return
             
         if args.test_csv:
