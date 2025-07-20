@@ -1032,13 +1032,30 @@ class APIFootballImporter:
     
     def _clean_team_name(self, name: str) -> str:
         """Clean team name for matching"""
+        if not name:
+            return ""
+            
         # Remove common words and normalize
         name = name.lower()
         
-        # Remove common prefixes/suffixes
-        removals = ['fc', 'sc', 'ac', 'cf', 'club', 'de', 'da', 'do', 'the', 'af', 'if', 'bk', 'fk', 'sk']
+        # Remove punctuation and normalize
+        import re
+        name = re.sub(r'[^\w\s]', ' ', name)  # Replace punctuation with spaces
+        name = re.sub(r'\s+', ' ', name)  # Multiple spaces to single space
+        
+        # Remove common prefixes/suffixes and football-specific terms
+        removals = [
+            'fc', 'sc', 'ac', 'cf', 'club', 'de', 'da', 'do', 'the', 'af', 'if', 'bk', 'fk', 'sk',
+            'football', 'soccer', 'futbol', 'calcio', 'fussball', 'voetbal',
+            'united', 'city', 'town', 'rovers', 'wanderers', 'athletic', 'sporting',
+            'real', 'royal', 'deportivo', 'atletico', 'club', 'association', 'society',
+            'inter', 'internacional', 'nacional', 'olympique', 'olympiacos',
+            'saints', 'spurs', 'blues', 'reds', 'whites', 'eagles', 'lions',
+            'al', 'as', 'ca', 'cd', 'cp', 'rc', 'rcd', 'sd', 'ud', 'cf'
+        ]
+        
         words = name.split()
-        words = [word for word in words if word not in removals]
+        words = [word for word in words if word not in removals and len(word) > 1]
         
         return ' '.join(words).strip()
     
@@ -1059,9 +1076,9 @@ class APIFootballImporter:
             print("✅ All teams already mapped!")
             return
         
-        # Get all leagues once - major optimization
+        # Get all leagues once - major optimization  
         print("🌍 Getting all leagues...")
-        leagues = self.get_top_leagues(100)  # Get top 100 leagues
+        leagues = self.get_top_leagues(200)  # Increased to 200 leagues for better coverage
         self._increment_request_count()
         
         # Create a comprehensive team database from all leagues
@@ -1079,15 +1096,32 @@ class APIFootballImporter:
             
             for team in teams:
                 # Store multiple name variations for better matching
+                original_name = team['name']
                 names_to_try = [
-                    team['name'],
-                    self._clean_team_name(team['name']),
-                    team['name'].replace('FC', '').replace('SC', '').replace('AC', '').strip()
+                    original_name,
+                    self._clean_team_name(original_name),
+                    original_name.replace('FC', '').replace('SC', '').replace('AC', '').replace('CF', '').strip(),
+                    original_name.replace(' FC', '').replace(' SC', '').replace(' AC', '').replace(' CF', '').strip(),
+                    original_name.replace('Football Club', '').replace('Soccer Club', '').strip(),
+                    original_name.replace('Club de Fútbol', '').replace('Club de Football', '').strip(),
+                    # Add common abbreviations
+                    original_name.replace('United', 'Utd').replace('Athletic', 'Ath').replace('International', 'Inter'),
+                    original_name.replace('Association', 'Assoc').replace('Sporting', 'Sport'),
+                    # Remove "de", "da", "do" for Spanish/Portuguese teams
+                    original_name.replace(' de ', ' ').replace(' da ', ' ').replace(' do ', ' ').strip(),
+                    # Remove common prefixes
+                    original_name.replace('Real ', '').replace('Club ', '').replace('Deportivo ', '').strip()
                 ]
                 
                 for name_variant in names_to_try:
-                    if name_variant:
-                        all_teams[name_variant.lower()] = team
+                    if name_variant and len(name_variant.strip()) > 2:  # Avoid empty or very short strings
+                        clean_variant = name_variant.strip().lower()
+                        all_teams[clean_variant] = team
+                        # Also store without accents
+                        import unicodedata
+                        no_accents = unicodedata.normalize('NFKD', clean_variant)
+                        no_accents = "".join([c for c in no_accents if not unicodedata.combining(c)])
+                        all_teams[no_accents] = team
         
         print(f"🎯 Built database of {len(all_teams)} team name variants")
         
@@ -1106,7 +1140,34 @@ class APIFootballImporter:
             if clean_name in all_teams:
                 matched_team = all_teams[clean_name]
             
-            # 2. Fuzzy matching with stored teams
+            # 2. Try the team name as-is (lowercase)
+            if not matched_team and team_name.lower() in all_teams:
+                matched_team = all_teams[team_name.lower()]
+            
+            # 3. Try without accents
+            if not matched_team:
+                import unicodedata
+                no_accents = unicodedata.normalize('NFKD', team_name.lower())
+                no_accents = "".join([c for c in no_accents if not unicodedata.combining(c)])
+                if no_accents in all_teams:
+                    matched_team = all_teams[no_accents]
+            
+            # 4. Try various common variations
+            if not matched_team:
+                variations = [
+                    team_name.replace('FC', '').replace('SC', '').replace('AC', '').replace('CF', '').strip().lower(),
+                    team_name.replace(' FC', '').replace(' SC', '').replace(' AC', '').replace(' CF', '').strip().lower(),
+                    team_name.replace('Real ', '').replace('Club ', '').strip().lower(),
+                    team_name.replace(' United', '').replace(' City', '').strip().lower(),
+                    team_name.replace('Sporting ', '').replace('Athletic ', '').strip().lower(),
+                ]
+                
+                for variation in variations:
+                    if variation and variation in all_teams:
+                        matched_team = all_teams[variation]
+                        break
+            
+            # 5. Fuzzy matching with stored teams (most expensive, so last)
             if not matched_team:
                 for stored_name, team_data in all_teams.items():
                     if self._is_team_name_match(team_name, stored_name):
@@ -1122,14 +1183,28 @@ class APIFootballImporter:
                 )
                 matched_count += 1
                 print(f"✅ Mapped: {team_name} -> {matched_team['name']} (ID: {matched_team['id']})")
+                
+                # Save progress every 10 teams to avoid losing work on server restarts
+                if matched_count % 10 == 0:
+                    team_mapper.save_mapping()
+                    print(f"💾 Saved progress: {matched_count} teams mapped so far")
             else:
                 print(f"❌ Could not map: {team_name}")
         
-        # Save mappings
+        # Final save
         team_mapper.save_mapping()
         progress = team_mapper.get_mapping_progress()
         print(f"🎯 Mapping complete: {progress['mapped']}/{progress['total']} teams ({progress['progress_percent']}%)")
         print(f"📊 Requests used: {self.requests_made}")
+        
+        # Show some unmapped teams for debugging
+        if progress['unmapped'] > 0:
+            unmapped_remaining = team_mapper.get_unmapped_teams()
+            print(f"\n❌ Still unmapped ({len(unmapped_remaining)} teams):")
+            for i, team in enumerate(unmapped_remaining[:10]):  # Show first 10
+                print(f"  {i+1}. {team}")
+            if len(unmapped_remaining) > 10:
+                print(f"  ... and {len(unmapped_remaining) - 10} more")
 
     def map_top_250_teams(self) -> None:
         """

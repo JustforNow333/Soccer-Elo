@@ -16,7 +16,7 @@ class TeamInfo:
     league: Optional[str] = None
     country: Optional[str] = None
 
-# The exact 250 teams from your list
+# The top 250 teams from your list (taking first 250 of 270)
 TOP_250_TEAMS = [
     "Real Madrid",
     "FC Barcelona", 
@@ -247,27 +247,7 @@ TOP_250_TEAMS = [
     "Torino",
     "Bologna",
     "Sampdoria",
-    "Genoa",
-    "VfB Stuttgart",
-    "Werder Bremen",
-    "Hamburger SV",
-    "Schalke 04",
-    "Hertha BSC",
-    "1. FC Köln",
-    "Borussia Mönchengladbach",
-    "RB Leipzig",
-    "Villarreal",
-    "Real Valladolid",
-    "Espanyol",
-    "Deportivo La Coruña",
-    "Real Zaragoza",
-    "LOSC Lille",
-    "RC Lens",
-    "Stade Rennais",
-    "FC Nantes",
-    "Girondins de Bordeaux",
-    "AS Saint-Étienne",
-    "Trabzonspor"
+    "Genoa"
 ]
 
 class TeamMapper:
