@@ -667,22 +667,5 @@ def run_scheduler_top_100():
         print("🛑 Scheduler stopped by user", flush=True)
         scheduler.shutdown()
 
-def main():
-    parser = argparse.ArgumentParser(description="Import and update top 100 teams")
-    parser.add_argument("--startup-import", action="store_true", help="Import top 100 teams before scheduling")
-    args = parser.parse_args()
-
-    with app.app_context():
-        db.create_all()
-        print("✅ All tables created (if not exist)", flush=True)
-        if args.startup_import:
-            import_top_100_teams_once()
-
-    run_scheduler_top_100()
-
-if __name__ == "__main__":
-    main()
-
-
 if __name__ == "__main__":
     main()
