@@ -6,7 +6,7 @@ import json
 print("🟢 STARTED import_and_fetch.py", flush=True)
 from db import db
 from app import app
-from import_data import import_matches_from_csv, generate_football_data_urls
+# Removed CSV imports - API-only system
 from fixture_import import fetch_next_48_hours_fixtures
 from apscheduler.schedulers.blocking import BlockingScheduler\
 
@@ -24,20 +24,7 @@ except ImportError as e:
     print(f"⚠️  API import system not available: {e}", flush=True)
     API_IMPORT_AVAILABLE = False
 
-def scheduled_fetch():
-    """Scheduled CSV-based import for recent seasons"""
-    print("Running scheduled match import (CSV fetch)...", flush=True)
-    urls = generate_football_data_urls(
-        start_season=2024,
-        end_season=2025,
-        include_club_world_cup=True
-    )
-    for url in urls:
-        try:
-            import_matches_from_csv(url)
-        except Exception as e:
-            print(f"Error in scheduled import {url}: {e}", flush=True)
-    print("Scheduled CSV fetch complete.", flush=True)
+# CSV functionality removed - using API-only system
 
 def scheduled_fixture_fetch():
     """Scheduled function to fetch fixtures from API-Football"""
@@ -203,38 +190,23 @@ def api_import_test_small():
         return False
 
 
-def import_all_once_enhanced():
-    """Enhanced startup import that can use both CSV and API"""
-    print("🚀 Enhanced startup import...", flush=True)
+def api_import_full_startup():
+    """Full API-only startup import - no CSV fallback"""
+    print("🚀 Full API startup import...", flush=True)
     
-    # Option 1: Try API import first (if available and configured)
-    if API_IMPORT_AVAILABLE and os.environ.get("API_FOOTBALL_KEY"):
-        print("🔄 Attempting API-based import...", flush=True)
-        if api_import_test():
-            print("✅ API import successful, skipping CSV import", flush=True)
-            return
-        else:
-            print("⚠️  API import failed, falling back to CSV import...", flush=True)
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available", flush=True)
+        return False
+        
+    if not os.environ.get("API_FOOTBALL_KEY"):
+        print("❌ API_FOOTBALL_KEY not configured", flush=True)
+        return False
     
-    # Option 2: Fallback to CSV import
-    print("🔄 Running CSV-based import...", flush=True)
-    import_all_once()
+    print("🔄 Running full API-based import...", flush=True)
+    return api_import_full()
 
 
-def import_all_once():
-    """Original CSV-based import (kept as fallback)"""
-    print("Importing all matches ONCE at startup from CSV, including Club World Cup...", flush=True)
-    urls = generate_football_data_urls(
-        start_season=1993,
-        end_season=2025,
-        include_club_world_cup=True
-    )
-    for url in urls:
-        try:
-            import_matches_from_csv(url)
-        except Exception as e:
-            print(f"Error importing {url}: {e}", flush=True)
-    print("Initial CSV import complete.", flush=True)
+# CSV import functionality removed - API-only system
 
 def run_scheduler(mode="enhanced"):
     """Run the scheduler with different import strategies"""
@@ -253,26 +225,11 @@ def run_scheduler(mode="enhanced"):
         # Fixture fetch daily (8 AM UTC)
         scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
         
-    elif mode == "csv-only":
-        print("📁 CSV-only mode: Using CSV imports only", flush=True)
+    elif mode == "api-light":
+        print("💡 API-Light mode: Minimal API usage with essential updates", flush=True)
         
-        # Historical match data import (every 5 minutes)
-        scheduler.add_job(scheduled_fetch, 'interval', minutes=5, id='csv_import_frequent')
-        
-        # Fixture fetch daily (8 AM UTC)
-        scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
-        
-    elif mode == "enhanced":
-        print("🔄 Enhanced mode: API + CSV hybrid approach", flush=True)
-        
-        # Full API import weekly (Sundays at 2 AM UTC)
-        scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
-        
-        # Quick API updates every 3 days (4 AM UTC)
-        scheduler.add_job(api_import_updates, 'cron', hour=4, minute=0, day='*/3', id='periodic_api_updates')
-        
-        # CSV import for recent seasons (daily at 5 AM UTC)
-        scheduler.add_job(scheduled_fetch, 'cron', hour=5, minute=0, id='daily_csv_import')
+        # Quick API updates weekly (Sundays at 4 AM UTC)
+        scheduler.add_job(api_import_updates, 'cron', day_of_week=6, hour=4, minute=0, id='weekly_api_updates')
         
         # Fixture fetch daily (8 AM UTC)
         scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch')
@@ -285,9 +242,6 @@ def run_scheduler(mode="enhanced"):
         
         # Daily fixture fetch for upcoming week (8 AM UTC)
         scheduler.add_job(scheduled_fixture_fetch, 'cron', hour=8, minute=0, id='daily_fixture_fetch_week')
-        
-        # Full API import weekly (Sundays at 2 AM UTC) for comprehensive data
-        scheduler.add_job(api_import_full, 'cron', day_of_week=6, hour=2, minute=0, id='weekly_full_import')
         
     elif mode == "top-250":
         print("🏆 Top 250 mode: Updates for the specific 250 teams", flush=True)
@@ -317,17 +271,16 @@ def run_scheduler(mode="enhanced"):
 def main():
     """Main function with command line interface"""
     parser = argparse.ArgumentParser(description="Enhanced Import and Fetch System")
-    parser.add_argument("--mode", choices=["api-only", "csv-only", "enhanced", "live", "top-250"], 
-                       default="enhanced",
-                       help="Import strategy (default: enhanced)")
+    parser.add_argument("--mode", choices=["api-only", "api-light", "live", "top-250"], 
+                       default="api-only",
+                       help="Import strategy (default: api-only)")
     parser.add_argument("--startup-import", action="store_true",
                        help="Run startup import before scheduling")
     parser.add_argument("--test-api", action="store_true",
                        help="Test API import and exit")
     parser.add_argument("--test-api-small", action="store_true",
                        help="Small API test (1 league, 3 teams, ~2-3 requests)")
-    parser.add_argument("--test-csv", action="store_true",
-                       help="Test CSV import and exit")
+# CSV test option removed
     parser.add_argument("--test-frequent", action="store_true",
                        help="Test frequent season update and exit")
     parser.add_argument("--dry-run", action="store_true",
@@ -391,14 +344,7 @@ def main():
                 print("❌ Small API import test failed!", flush=True)
             return
             
-        if args.test_csv:
-            print("🧪 Testing CSV import...", flush=True)
-            try:
-                import_all_once()
-                print("✅ CSV import test successful!", flush=True)
-            except Exception as e:
-                print(f"❌ CSV import test failed: {e}", flush=True)
-            return
+# CSV test removed - API-only system
             
         if args.test_frequent:
             print("🧪 Testing frequent season update...", flush=True)
@@ -413,17 +359,15 @@ def main():
         if args.startup_import:
             print("🚀 Running startup import...", flush=True)
             if args.mode == "api-only":
+                api_import_full_startup()
+            elif args.mode == "api-light":
                 api_import_test()
-            elif args.mode == "csv-only":
-                import_all_once()
             elif args.mode == "live":
-                print("⚡ Running initial frequent season update...", flush=True)
-                api_frequent_season_update()
+                print("⚡ Running initial full API import for live mode...", flush=True)
+                api_import_full_startup()
             elif args.mode == "top-250":
                 print("🏆 Running top 250 teams setup...", flush=True)
                 print("Note: Make sure to run --map-teams first, then --import-historical", flush=True)
-            else:  # enhanced
-                import_all_once_enhanced()
     
     # Handle dry run
     if args.dry_run:
@@ -435,26 +379,19 @@ def main():
             print("   - Full API import: Sundays at 2 AM UTC", flush=True)
             print("   - API updates: Daily at 6 AM UTC", flush=True) 
             print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
-        elif args.mode == "csv-only":
+        elif args.mode == "api-light":
             print("📅 Would schedule:", flush=True)
-            print("   - CSV import: Every 5 minutes", flush=True)
+            print("   - API updates: Weekly at 4 AM UTC", flush=True)
             print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
         elif args.mode == "live":
             print("📅 Would schedule:", flush=True)
             print("   - Frequent season updates: Every 5 minutes (2024-2025 season)", flush=True)
-            print("   - Weekly fixture fetch: Daily at 8 AM UTC", flush=True)
-            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
+            print("   - Daily fixture fetch: Daily at 8 AM UTC", flush=True)
         elif args.mode == "top-250":
             print("📅 Would schedule:", flush=True)
             print("   - Top 250 fixture updates: Daily at 6 AM UTC", flush=True)
             print("   - Top 250 match updates: Every 5 minutes", flush=True)
             print("   - Targets your specific 250 teams list", flush=True)
-        else:  # enhanced
-            print("📅 Would schedule:", flush=True)
-            print("   - Full API import: Sundays at 2 AM UTC", flush=True)
-            print("   - API updates: Every 3 days at 4 AM UTC", flush=True)
-            print("   - CSV import: Daily at 5 AM UTC", flush=True)
-            print("   - Fixture fetch: Daily at 8 AM UTC", flush=True)
         return
     
     # Run the scheduler
