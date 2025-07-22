@@ -235,6 +235,22 @@ def debug_fixtures():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/data-status")
+def data_status():
+    """Check database status"""
+    try:
+        total_teams = Team.query.count()
+        total_matches = Match.query.count()
+        total_elo_ratings = EloRating.query.count()
+        
+        return jsonify({
+            "total_teams": total_teams,
+            "total_matches": total_matches,
+            "total_elo_ratings": total_elo_ratings,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # REMOVED: Dangerous database wipe endpoint for production safety
 # @app.route("/wipe-db/", methods=["POST"])
 # def wipe_db():
@@ -1094,6 +1110,109 @@ def manual_fixture_fetch():
         return jsonify({"message": "Fixture fetch completed successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/manual-import", methods=["POST"])
+def manual_import():
+    """Import data from CSV sources as fallback"""
+    try:
+        from import_data import import_matches_from_csv
+        
+        # Import Premier League 2023-24 season as a quick test
+        url = "https://www.football-data.co.uk/mmz4281/2324/E0.csv"
+        import_matches_from_csv(url)
+        
+        return jsonify({
+            "message": "CSV import completed (Premier League 2023-24)",
+            "method": "csv"
+        }), 200
+    
+    except Exception as e:
+        return jsonify({"error": f"Import failed: {str(e)}"}), 500
+
+@app.route("/api/recalculate-elo", methods=["POST"])
+def recalculate_elo():
+    """Recalculate ELO ratings for existing matches"""
+    try:
+        print("🔄 Starting ELO recalculation...", flush=True)
+        
+        # Clear existing ELO ratings
+        EloRating.query.delete()
+        db.session.commit()
+        print("✅ Cleared existing ELO ratings", flush=True)
+        
+        # Get all matches ordered by date
+        matches = Match.query.order_by(Match.date.asc()).all()
+        print(f"📊 Found {len(matches)} matches to process", flush=True)
+        
+        if not matches:
+            return jsonify({"error": "No matches found to process"}), 400
+        
+        # Track ELO ratings for each team
+        team_elos = {}
+        ratings_to_add = []
+        
+        processed = 0
+        for match in matches:
+            try:
+                # Get current ELO for both teams (default to 1000)
+                home_elo = team_elos.get(match.home_team_id, 1000)
+                away_elo = team_elos.get(match.away_team_id, 1000)
+                
+                # Calculate match result
+                from elo_utils import get_match_result, update_elo
+                home_score, away_score = get_match_result(match.home_score, match.away_score)
+                
+                # Calculate new ELO ratings
+                new_home_elo = update_elo(home_elo, away_elo, home_score)
+                new_away_elo = update_elo(away_elo, home_elo, away_score)
+                
+                # Update tracking
+                team_elos[match.home_team_id] = new_home_elo
+                team_elos[match.away_team_id] = new_away_elo
+                
+                # Add to batch
+                ratings_to_add.append(EloRating(
+                    team_id=match.home_team_id, 
+                    date=match.date, 
+                    rating=new_home_elo
+                ))
+                ratings_to_add.append(EloRating(
+                    team_id=match.away_team_id, 
+                    date=match.date, 
+                    rating=new_away_elo
+                ))
+                
+                processed += 1
+                
+                # Batch commit every 100 matches
+                if processed % 100 == 0:
+                    db.session.add_all(ratings_to_add)
+                    db.session.commit()
+                    ratings_to_add = []
+                    print(f"📈 Processed {processed}/{len(matches)} matches", flush=True)
+                    
+            except Exception as e:
+                print(f"❌ Error processing match {match.id}: {e}", flush=True)
+                continue
+        
+        # Final commit
+        if ratings_to_add:
+            db.session.add_all(ratings_to_add)
+            db.session.commit()
+        
+        print(f"✅ ELO recalculation complete: {processed} matches processed", flush=True)
+        
+        return jsonify({
+            "message": f"ELO recalculation completed successfully",
+            "matches_processed": processed,
+            "total_matches": len(matches),
+            "teams_with_elo": len(team_elos)
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ ELO recalculation failed: {str(e)}", flush=True)
+        return jsonify({"error": f"Recalculation failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
     from apscheduler.schedulers.background import BackgroundScheduler

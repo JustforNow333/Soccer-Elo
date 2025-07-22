@@ -193,6 +193,87 @@ export default function AdminPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
+              <CardTitle>ELO Management</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold mb-2">Fix ELO Calculations</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Check database status and recalculate ELO ratings from your existing match data.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    <Button 
+                      onClick={async () => {
+                        try {
+                          setSubmitting(true)
+                          const status = await api.checkDataStatus()
+                          
+                          toast({
+                            title: "Database Status",
+                            description: `Teams: ${status.total_teams}, Matches: ${status.total_matches}, ELO Ratings: ${status.total_elo_ratings}`,
+                          })
+                        } catch (error) {
+                          toast({
+                            title: "Status Check Failed",
+                            description: "Could not check database status",
+                            variant: "destructive",
+                          })
+                        } finally {
+                          setSubmitting(false)
+                        }
+                      }}
+                      disabled={submitting}
+                      variant="outline"
+                      className="w-full"
+                    >
+                      Check Database Status
+                    </Button>
+                    
+                    <Button 
+                      onClick={async () => {
+                        try {
+                          setSubmitting(true)
+                          toast({
+                            title: "Recalculation Started",
+                            description: "Recalculating ELO ratings from existing matches... This may take a few minutes.",
+                          })
+                          
+                          const result = await api.recalculateElo()
+                          
+                          toast({
+                            title: "Recalculation Complete",
+                            description: `Processed ${result.matches_processed} matches, ${result.teams_with_elo} teams now have ELO ratings`,
+                          })
+                          
+                          // Refresh teams list after recalculation
+                          const teamsData = await api.getTeams()
+                          setTeams(teamsData.sort((a, b) => a.name.localeCompare(b.name)))
+                          
+                        } catch (error) {
+                          console.error("Recalculation failed:", error)
+                          toast({
+                            title: "Recalculation Failed",
+                            description: "Failed to recalculate ELO ratings. Check the backend logs for details.",
+                            variant: "destructive",
+                          })
+                        } finally {
+                          setSubmitting(false)
+                        }
+                      }}
+                      disabled={submitting}
+                      className="w-full"
+                    >
+                      {submitting ? "Recalculating..." : "Recalculate ELO Ratings"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Submit New Match</CardTitle>
             </CardHeader>
             <CardContent>

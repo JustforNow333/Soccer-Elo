@@ -6,11 +6,17 @@ const getBaseUrl = () => {
     return envUrl
   }
   
+  // Check if we're in production
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    // Production: Use your Render backend URL
+    return 'https://soccer-elo.onrender.com/api'
+  }
+  
   if (typeof window === 'undefined') {
     // Server-side: use localhost for API calls during SSR
     return 'http://localhost:5000/api'
   }
-  // Client-side: use relative URL which gets proxied by Next.js
+  // Client-side development: use localhost
   return 'http://localhost:5000/api'
 }
 
@@ -179,6 +185,44 @@ export const api = {
       console.error("API Error fetching elo ratings:", error)
       console.log("Using mock elo data as fallback")
       return mockEloRatings
+    }
+  },
+
+
+  async recalculateElo(): Promise<{ message: string; matches_processed: number; teams_with_elo: number }> {
+    try {
+      console.log(`Recalculating ELO from: ${API_BASE_URL}/recalculate-elo`)
+      const response = await fetchWithTimeout(`${API_BASE_URL}/recalculate-elo`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }, 300000) // 5 minute timeout for recalculation
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error("API Error recalculating ELO:", error)
+      throw error
+    }
+  },
+
+  async checkDataStatus(): Promise<any> {
+    try {
+      console.log(`Checking data status from: ${API_BASE_URL}/data-status`)
+      const response = await fetchWithTimeout(`${API_BASE_URL}/data-status`)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error("API Error checking data status:", error)
+      throw error
     }
   },
 }
