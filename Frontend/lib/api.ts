@@ -225,4 +225,25 @@ export const api = {
       throw error
     }
   },
+
+  async resetAndImport(): Promise<any> {
+    try {
+      console.log(`Resetting database and importing clean data from: ${API_BASE_URL}/reset-and-import`)
+      const response = await fetchWithTimeout(`${API_BASE_URL}/reset-and-import`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }, 600000) // 10 minute timeout for full reset and import
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error("API Error resetting and importing:", error)
+      throw error
+    }
+  },
 }

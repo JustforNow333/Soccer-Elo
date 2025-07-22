@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:5000/api/:path*',
+        destination: 'http://192.168.1.102:5000/api/:path*', // Use your backend's LAN IP here
       },
     ];
   },

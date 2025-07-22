@@ -237,25 +237,45 @@ def debug_fixtures():
 
 @app.route("/api/data-status")
 def data_status():
-    """Check database status"""
+    """Check database status with more details"""
     try:
         total_teams = Team.query.count()
         total_matches = Match.query.count()
         total_elo_ratings = EloRating.query.count()
+        total_fixtures = Fixture.query.count() if 'Fixture' in globals() else 0
+        
+        # Sample team data to see what's in there
+        sample_teams = Team.query.limit(5).all()
+        sample_team_data = [{"id": t.id, "name": t.name, "league": t.league} for t in sample_teams]
         
         return jsonify({
             "total_teams": total_teams,
             "total_matches": total_matches,
             "total_elo_ratings": total_elo_ratings,
+            "total_fixtures": total_fixtures,
+            "sample_teams": sample_team_data,
+            "diagnosis": "You have teams but no matches - this means the match import failed or wasn't run"
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# REMOVED: Dangerous database wipe endpoint for production safety
-# @app.route("/wipe-db/", methods=["POST"])
-# def wipe_db():
-#     # This endpoint has been disabled for production safety
-#     return jsonify({"error": "Endpoint disabled for production safety"}), 403
+
+@app.route("/wipe-db/", methods=["POST"])
+def wipe_db():
+    """Completely wipe and recreate the database"""
+    try:
+        # Drop all tables
+        db.drop_all()
+        
+        # Recreate all tables
+        db.create_all()
+        
+        return jsonify({
+            "status": "Database wiped successfully",
+            "message": "All tables dropped and recreated"
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to wipe database: {str(e)}"}), 500
 
 @app.route("/clear-fixtures/", methods=["POST"])
 def clear_fixtures():
@@ -1213,6 +1233,171 @@ def recalculate_elo():
         db.session.rollback()
         print(f"❌ ELO recalculation failed: {str(e)}", flush=True)
         return jsonify({"error": f"Recalculation failed: {str(e)}"}), 500
+
+@app.route("/api/import-top-250-matches", methods=["POST"])
+def import_top_250_matches():
+    """Import matches for the top 250 teams specifically"""
+    try:
+        print("🚀 Starting Top 250 teams match import...", flush=True)
+        
+        # Check if we have the top 250 teams system
+        try:
+            from top_250_teams import get_team_mapper
+            from api_import import APIFootballImporter
+            
+            api_key = os.environ.get("API_FOOTBALL_KEY")
+            if not api_key:
+                return jsonify({"error": "API_FOOTBALL_KEY not configured"}), 400
+            
+            # Get team mapper for top 250 teams
+            team_mapper = get_team_mapper()
+            progress = team_mapper.get_mapping_progress()
+            
+            if progress['mapped'] == 0:
+                return jsonify({
+                    "error": "No top 250 teams mapped. Run team mapping first.",
+                    "suggestion": "Use the top_250_manager.py script to map teams first"
+                }), 400
+            
+            # Import historical data for mapped teams
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=0.6,
+                max_requests_per_day=6000
+            )
+            
+            print(f"📊 Importing matches for {progress['mapped']} mapped teams...", flush=True)
+            importer.import_top_250_teams_historical(start_year=2020)
+            
+            # Check results
+            total_matches = Match.query.count()
+            total_elo_ratings = EloRating.query.count()
+            
+            return jsonify({
+                "message": f"Top 250 teams import completed successfully",
+                "teams_mapped": progress['mapped'],
+                "total_matches": total_matches,
+                "total_elo_ratings": total_elo_ratings
+            }), 200
+            
+        except ImportError:
+            # Fallback: Clean up excess teams and import basic data
+            print("⚠️ Top 250 system not available, cleaning up and importing basic data...", flush=True)
+            
+            # Keep only teams from major leagues
+            major_leagues = [
+                "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1",
+                "Champions League", "Europa League", "World Cup"
+            ]
+            
+            # Count teams in major leagues
+            teams_to_keep = Team.query.filter(Team.league.in_(major_leagues)).all()
+            teams_to_delete = Team.query.filter(~Team.league.in_(major_leagues)).all()
+            
+            print(f"🧹 Cleaning up: Keeping {len(teams_to_keep)} teams, removing {len(teams_to_delete)} teams", flush=True)
+            
+            # Delete excess teams
+            for team in teams_to_delete:
+                db.session.delete(team)
+            db.session.commit()
+            
+            # Import matches for remaining teams using CSV
+            from import_data import import_matches_from_csv
+            
+            urls = [
+                "https://www.football-data.co.uk/mmz4281/2324/E0.csv",  # Premier League 23-24
+                "https://www.football-data.co.uk/mmz4281/2324/SP1.csv", # La Liga 23-24
+                "https://www.football-data.co.uk/mmz4281/2324/I1.csv",  # Serie A 23-24
+                "https://www.football-data.co.uk/mmz4281/2324/D1.csv",  # Bundesliga 23-24
+                "https://www.football-data.co.uk/mmz4281/2324/F1.csv",  # Ligue 1 23-24
+            ]
+            
+            imported_count = 0
+            for url in urls:
+                try:
+                    import_matches_from_csv(url)
+                    imported_count += 1
+                except Exception as e:
+                    print(f"Failed to import {url}: {e}")
+            
+            final_teams = Team.query.count()
+            final_matches = Match.query.count()
+            
+            return jsonify({
+                "message": f"Cleanup and import completed - imported {imported_count} league seasons",
+                "final_teams": final_teams,
+                "final_matches": final_matches,
+                "method": "csv_cleanup"
+            }), 200
+            
+    except Exception as e:
+        print(f"❌ Top 250 import failed: {str(e)}", flush=True)
+        return jsonify({"error": f"Import failed: {str(e)}"}), 500
+
+@app.route("/api/reset-and-import", methods=["POST"])
+def reset_and_import():
+    """Wipe database and import clean data"""
+    try:
+        print("🗑️  Resetting database...", flush=True)
+        
+        # Clear all data
+        EloRating.query.delete()
+        Match.query.delete()
+        Team.query.delete()
+        # Clear fixtures if they exist
+        try:
+            Fixture.query.delete()
+        except:
+            pass
+        db.session.commit()
+        print("✅ Database cleared", flush=True)
+        
+        # Import fresh data from CSV (major leagues only)
+        from import_data import import_matches_from_csv
+        
+        urls = [
+            "https://www.football-data.co.uk/mmz4281/2324/E0.csv",  # Premier League 23-24
+            "https://www.football-data.co.uk/mmz4281/2324/SP1.csv", # La Liga 23-24
+            "https://www.football-data.co.uk/mmz4281/2324/I1.csv",  # Serie A 23-24
+            "https://www.football-data.co.uk/mmz4281/2324/D1.csv",  # Bundesliga 23-24
+            "https://www.football-data.co.uk/mmz4281/2324/F1.csv",  # Ligue 1 23-24
+            "https://www.football-data.co.uk/mmz4281/2223/E0.csv",  # Premier League 22-23
+            "https://www.football-data.co.uk/mmz4281/2223/SP1.csv", # La Liga 22-23
+            "https://www.football-data.co.uk/mmz4281/2223/I1.csv",  # Serie A 22-23
+        ]
+        
+        imported_count = 0
+        total_urls = len(urls)
+        
+        for i, url in enumerate(urls):
+            try:
+                print(f"📥 Importing {i+1}/{total_urls}: {url}", flush=True)
+                import_matches_from_csv(url)
+                imported_count += 1
+            except Exception as e:
+                print(f"❌ Failed to import {url}: {e}", flush=True)
+                continue
+        
+        # Get final counts
+        final_teams = Team.query.count()
+        final_matches = Match.query.count()
+        final_elo_ratings = EloRating.query.count()
+        
+        return jsonify({
+            "message": f"Database reset and import completed successfully!",
+            "imported_seasons": imported_count,
+            "total_seasons": total_urls,
+            "final_teams": final_teams,
+            "final_matches": final_matches,
+            "final_elo_ratings": final_elo_ratings,
+            "leagues": "Premier League, La Liga, Serie A, Bundesliga, Ligue 1"
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Reset and import failed: {str(e)}", flush=True)
+        return jsonify({"error": f"Reset failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
     from apscheduler.schedulers.background import BackgroundScheduler

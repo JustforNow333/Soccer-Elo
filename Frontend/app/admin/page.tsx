@@ -198,9 +198,9 @@ export default function AdminPage() {
             <CardContent>
               <div className="space-y-4">
                 <div>
-                  <h3 className="font-semibold mb-2">Fix ELO Calculations</h3>
+                  <h3 className="font-semibold mb-2">Database Management</h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Check database status and recalculate ELO ratings from your existing match data.
+                    Check your current data or completely reset and import clean data from major European leagues.
                   </p>
                   <div className="grid grid-cols-1 gap-2">
                     <Button 
@@ -211,7 +211,7 @@ export default function AdminPage() {
                           
                           toast({
                             title: "Database Status",
-                            description: `Teams: ${status.total_teams}, Matches: ${status.total_matches}, ELO Ratings: ${status.total_elo_ratings}`,
+                            description: `Teams: ${status.total_teams}, Matches: ${status.total_matches}, ELO Ratings: ${status.total_elo_ratings}. ${status.diagnosis || ''}`,
                           })
                         } catch (error) {
                           toast({
@@ -228,6 +228,47 @@ export default function AdminPage() {
                       className="w-full"
                     >
                       Check Database Status
+                    </Button>
+                    
+                    <Button 
+                      onClick={async () => {
+                        if (!confirm("⚠️ This will DELETE ALL your current data and import fresh data from major European leagues. Are you sure?")) {
+                          return
+                        }
+                        
+                        try {
+                          setSubmitting(true)
+                          toast({
+                            title: "Reset Started",
+                            description: "Wiping database and importing fresh data... This will take 5-10 minutes.",
+                          })
+                          
+                          const result = await api.resetAndImport()
+                          
+                          toast({
+                            title: "Reset Complete!",
+                            description: `${result.message} Teams: ${result.final_teams}, Matches: ${result.final_matches}, ELO Ratings: ${result.final_elo_ratings}`,
+                          })
+                          
+                          // Refresh teams list after reset
+                          const teamsData = await api.getTeams()
+                          setTeams(teamsData.sort((a, b) => a.name.localeCompare(b.name)))
+                          
+                        } catch (error) {
+                          console.error("Reset failed:", error)
+                          toast({
+                            title: "Reset Failed",
+                            description: "Failed to reset database. Check the backend logs for details.",
+                            variant: "destructive",
+                          })
+                        } finally {
+                          setSubmitting(false)
+                        }
+                      }}
+                      disabled={submitting}
+                      className="w-full bg-red-600 hover:bg-red-700"
+                    >
+                      {submitting ? "Resetting..." : "🗑️ Reset DB & Import Clean Data"}
                     </Button>
                     
                     <Button 
@@ -262,9 +303,10 @@ export default function AdminPage() {
                         }
                       }}
                       disabled={submitting}
+                      variant="secondary"
                       className="w-full"
                     >
-                      {submitting ? "Recalculating..." : "Recalculate ELO Ratings"}
+                      {submitting ? "Recalculating..." : "Recalculate ELO Ratings Only"}
                     </Button>
                   </div>
                 </div>

@@ -196,11 +196,53 @@ def status():
         except:
             pass
 
+def setup_and_run():
+    """Complete setup: map teams, import historical data, then start scheduler"""
+    print("🚀 Starting complete Top 250 teams setup...")
+    print("="*60)
+    
+    # Step 1: Map teams
+    print("\n📍 Step 1: Mapping teams to API IDs...")
+    map_teams()
+    
+    # Check mapping progress
+    team_mapper = get_team_mapper()
+    progress = team_mapper.get_mapping_progress()
+    
+    if progress['mapped'] < 100:  # Need at least 100 teams mapped
+        print(f"❌ Only {progress['mapped']} teams mapped. Need at least 100 to proceed.")
+        print("💡 Try running 'python top_250_manager.py map' multiple times or check your API key.")
+        return
+    
+    print(f"✅ Step 1 complete: {progress['mapped']}/{progress['total']} teams mapped")
+    
+    # Step 2: Import historical data
+    print("\n📚 Step 2: Importing historical match data...")
+    import_historical_data()
+    print("✅ Step 2 complete: Historical data imported")
+    
+    # Step 3: Start scheduler
+    print("\n⏰ Step 3: Starting background scheduler...")
+    print("📅 This will run continuously with:")
+    print("   - Daily fixture updates at 6:00 AM UTC")
+    print("   - Match updates every 5 minutes")
+    print("   - Press Ctrl+C to stop")
+    print("="*60)
+    
+    # Small delay before starting scheduler
+    import time
+    time.sleep(2)
+    
+    run_scheduler()
+
 def main():
     """Main function with command line interface"""
     parser = argparse.ArgumentParser(description="Top 250 Teams Manager")
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Complete setup command
+    setup_parser = subparsers.add_parser('setup', help='Complete setup: map teams, import data, and start scheduler')
     
     # Map teams command
     map_parser = subparsers.add_parser('map', help='Map team names to API IDs')
@@ -230,7 +272,9 @@ def main():
     with app.app_context():
         db.create_all()
         
-        if args.command == 'map':
+        if args.command == 'setup':
+            setup_and_run()
+        elif args.command == 'map':
             map_teams()
         elif args.command == 'import-historical':
             import_historical_data()
