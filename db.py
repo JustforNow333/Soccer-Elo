@@ -61,6 +61,15 @@ class Match(db.Model):
                              nullable=False)
     home_score = db.Column(db.Integer, nullable=False)
     away_score = db.Column(db.Integer, nullable=False)
+    
+    # Database constraints for data integrity
+    __table_args__ = (
+        db.CheckConstraint('home_score >= 0', name='home_score_non_negative'),
+        db.CheckConstraint('away_score >= 0', name='away_score_non_negative'),
+        db.CheckConstraint('home_score <= 50', name='home_score_reasonable'),
+        db.CheckConstraint('away_score <= 50', name='away_score_reasonable'),
+        db.CheckConstraint('home_team_id != away_team_id', name='different_teams'),
+    )
     home_team = db.relationship("Team",
                                 foreign_keys=[home_team_id],
                                 back_populates="home_matches")
@@ -105,6 +114,12 @@ class EloRating(db.Model):
     date = db.Column(db.Date, nullable=False)
     rating = db.Column(db.Float, nullable=False)
     team = db.relationship("Team", back_populates="elo_ratings")
+    
+    # Database constraints for ELO rating bounds
+    __table_args__ = (
+        db.CheckConstraint('rating >= 0', name='rating_positive'),
+        db.CheckConstraint('rating <= 5000', name='rating_reasonable_upper_bound'),
+    )
 
     def __init__(self, **kwargs):
         self.team_id = kwargs.get("team_id")

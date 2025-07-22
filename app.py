@@ -261,30 +261,74 @@ def data_status():
 
 
 @app.route("/wipe-db/", methods=["POST"])
-@app.route("/wipe-db/", methods=["POST"])
 def wipe_db():
+    """Fast database wipe - delete data in batches to avoid timeouts"""
     try:
-        print("🧹 Soft-wiping all data...", flush=True)
+        print("🧹 Starting fast database wipe...", flush=True)
 
-        EloRating.query.delete()
-        Match.query.delete()
+        # Delete in batches to avoid memory issues and timeouts
+        batch_size = 1000
+        
+        # ELO Ratings
+        while True:
+            batch = EloRating.query.limit(batch_size).all()
+            if not batch:
+                break
+            for item in batch:
+                db.session.delete(item)
+            db.session.commit()
+            print(f"Deleted {len(batch)} ELO ratings", flush=True)
+        
+        # Matches
+        while True:
+            batch = Match.query.limit(batch_size).all()
+            if not batch:
+                break
+            for item in batch:
+                db.session.delete(item)
+            db.session.commit()
+            print(f"Deleted {len(batch)} matches", flush=True)
+        
+        # Fixtures
         Fixture.query.delete()
-        Team.query.delete()
+        db.session.commit()
+        print("Deleted all fixtures", flush=True)
+        
+        # Teams
+        while True:
+            batch = Team.query.limit(batch_size).all()
+            if not batch:
+                break
+            for item in batch:
+                db.session.delete(item)
+            db.session.commit()
+            print(f"Deleted {len(batch)} teams", flush=True)
+        
+        # Users
         User.query.delete()
         db.session.commit()
+        print("Deleted all users", flush=True)
+        
+        # Reset auto-increment sequences to start fresh at 1
+        print("🔄 Resetting ID sequences...", flush=True)
+        db.session.execute(db.text("ALTER SEQUENCE teams_id_seq RESTART WITH 1;"))
+        db.session.execute(db.text("ALTER SEQUENCE matches_id_seq RESTART WITH 1;"))
+        db.session.execute(db.text("ALTER SEQUENCE elo_ratings_id_seq RESTART WITH 1;"))
+        db.session.execute(db.text("ALTER SEQUENCE fixtures_id_seq RESTART WITH 1;"))
+        db.session.execute(db.text("ALTER SEQUENCE users_id_seq RESTART WITH 1;"))
+        db.session.commit()
+        print("✅ All ID sequences reset to start at 1", flush=True)
 
+        print("✅ Complete database wipe finished!", flush=True)
         return jsonify({
-            "status": "Soft wipe complete",
-            "message": "All table rows deleted (schema preserved)"
+            "status": "Complete database wipe finished",
+            "message": "All data deleted and IDs reset to start at 1"
         }), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Soft wipe failed: {str(e)}"}), 500
+        
     except Exception as e:
         print(f"❌ Database wipe failed: {str(e)}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Failed to wipe database: {str(e)}"}), 500
+        db.session.rollback()
+        return jsonify({"error": f"Database wipe failed: {str(e)}"}), 500
 
 @app.route("/clear-fixtures/", methods=["POST"])
 def clear_fixtures():
@@ -352,14 +396,63 @@ def create_team():
 @app.route("/api/matches/", methods=["POST"])
 def create_match():
     body = request.get_json()
+    
+    # Input validation
+    if not body:
+        return jsonify({"error": "Request body is required"}), 400
+    
+    # Validate required fields
+    required_fields = ["date", "home_team_id", "away_team_id", "home_score", "away_score"]
+    for field in required_fields:
+        if field not in body:
+            return jsonify({"error": f"Field '{field}' is required"}), 400
+    
     try:
-        date = datetime.strptime(body["date"], "%Y-%m-%d").date()
+        # Validate and parse date
+        try:
+            date = datetime.strptime(body["date"], "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+        
+        # Validate team IDs
+        home_team_id = body["home_team_id"]
+        away_team_id = body["away_team_id"]
+        
+        if not isinstance(home_team_id, int) or not isinstance(away_team_id, int):
+            return jsonify({"error": "Team IDs must be integers"}), 400
+        
+        if home_team_id == away_team_id:
+            return jsonify({"error": "Home and away teams must be different"}), 400
+        
+        # Validate teams exist
+        home_team = Team.query.get(home_team_id)
+        away_team = Team.query.get(away_team_id)
+        
+        if not home_team:
+            return jsonify({"error": f"Home team with ID {home_team_id} not found"}), 400
+        if not away_team:
+            return jsonify({"error": f"Away team with ID {away_team_id} not found"}), 400
+        
+        # Validate scores
+        home_score = body.get("home_score", 0)
+        away_score = body.get("away_score", 0)
+        
+        if not isinstance(home_score, int) or not isinstance(away_score, int):
+            return jsonify({"error": "Scores must be integers"}), 400
+        
+        if home_score < 0 or away_score < 0:
+            return jsonify({"error": "Scores cannot be negative"}), 400
+        
+        if home_score > 50 or away_score > 50:
+            return jsonify({"error": "Scores above 50 are not realistic"}), 400
+        
+        # Create match after all validations pass
         match = Match(
             date=date,
-            home_team_id=body["home_team_id"],
-            away_team_id=body["away_team_id"],
-            home_score=body.get("home_score", 0),
-            away_score=body.get("away_score", 0),
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            home_score=home_score,
+            away_score=away_score,
         )
         db.session.add(match)
         db.session.flush()
@@ -999,7 +1092,7 @@ def get_strategic_betting_opportunities():
             category = None
             confidence_level = None
             
-            if 191 <= elo_diff <= 249:  # Fixed: Extended range to 249
+            if 150 <= elo_diff <= 249:  # Fixed: Covers 150-249 range
                 category = "good_chance"
                 confidence_level = "Good Chance"
             elif 250 <= elo_diff <= 399:
