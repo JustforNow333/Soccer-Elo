@@ -264,14 +264,22 @@ def data_status():
 @app.route("/wipe-db/", methods=["POST"])
 def wipe_db():
     try:
-        print("🗑️ Starting database wipe...", flush=True)
-        db.drop_all()
-        db.create_all()  # 🧠 This is essential
-        print("✅ All tables dropped and recreated", flush=True)
+        print("🧹 Soft-wiping all data...", flush=True)
+
+        EloRating.query.delete()
+        Match.query.delete()
+        Fixture.query.delete()
+        Team.query.delete()
+        User.query.delete()
+        db.session.commit()
+
         return jsonify({
-            "status": "Database wiped and recreated",
-            "message": "All tables dropped and reset"
+            "status": "Soft wipe complete",
+            "message": "All table rows deleted (schema preserved)"
         }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Soft wipe failed: {str(e)}"}), 500
     except Exception as e:
         print(f"❌ Database wipe failed: {str(e)}", flush=True)
         import traceback
