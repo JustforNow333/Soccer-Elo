@@ -261,17 +261,21 @@ def data_status():
 
 
 @app.route("/wipe-db/", methods=["POST"])
+@app.route("/wipe-db/", methods=["POST"])
 def wipe_db():
-    """Completely wipe database - drop all tables and data"""
     try:
-        # Drop all tables completely
+        print("🗑️ Starting database wipe...", flush=True)
         db.drop_all()
-        
+        db.create_all()  # 🧠 This is essential
+        print("✅ All tables dropped and recreated", flush=True)
         return jsonify({
-            "status": "Database wiped successfully", 
-            "message": "All tables and data dropped - ready for fresh import"
+            "status": "Database wiped and recreated",
+            "message": "All tables dropped and reset"
         }), 200
     except Exception as e:
+        print(f"❌ Database wipe failed: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": f"Failed to wipe database: {str(e)}"}), 500
 
 @app.route("/clear-fixtures/", methods=["POST"])
