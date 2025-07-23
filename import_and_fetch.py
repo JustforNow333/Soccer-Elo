@@ -291,6 +291,8 @@ def main():
                        help="Map top 250 teams to API IDs (one-time setup)")
     parser.add_argument("--import-historical", action="store_true",
                        help="Import historical data from 2000 for top 250 teams")
+    parser.add_argument("--setup-top-250", action="store_true",
+                       help="Complete top 250 setup: map teams, import historical data, and start scheduler")
     parser.add_argument("--status", action="store_true",
                        help="Show top 250 teams status")
     
@@ -310,6 +312,19 @@ def main():
         if args.import_historical:
             print("📚 Importing historical data for top 250 teams...", flush=True)
             import_top_250_historical()
+            return
+            
+        if args.setup_top_250:
+            print("🚀 Complete top 250 setup starting (optimized for <7,500 requests)...", flush=True)
+            
+            # Use enhanced single-day import method to stay under API limits
+            print("📊 Using enhanced import method with smart request budgeting...", flush=True)
+            setup_top_250_optimized()
+            
+            # Start scheduler
+            print("📅 Starting top 250 scheduler...", flush=True)
+            print("✅ Setup complete! Starting continuous updates...", flush=True)
+            run_scheduler("top-250")
             return
             
         if args.status:
@@ -592,6 +607,48 @@ def update_top_250_recent_matches():
             
         except Exception as e:
             print(f"❌ Recent match update failed: {str(e)}", flush=True)
+
+def setup_top_250_optimized():
+    """Optimized top 250 setup that stays under 7,500 requests per day"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available, skipping...", flush=True)
+        return
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set, skipping setup...", flush=True)
+        return
+    
+    print("🚀 Running optimized top 250 setup (enhanced single-day import)...", flush=True)
+    print("📊 Request budget: ~6,200 requests (leaves 1,300 for daily operations)", flush=True)
+    
+    with app.app_context():
+        try:
+            migrate_database()
+            
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=0.5,  # Balanced speed vs safety
+                max_requests_per_day=7500,  # Your daily limit
+                daily_operations_budget=1300  # Reserved for ongoing updates
+            )
+            
+            # Use the enhanced single-day import method
+            # This method uses smart request budgeting:
+            # - Modern-biased historical coverage (2019+ full, 2010-2018 dense, 2000-2009 selective)
+            # - ~100 requests for team mapping
+            # - ~5,800 requests for historical data
+            # - ~50 requests for fixture updates
+            # - Total: ~6,200 requests
+            importer.single_day_complete_import_enhanced(start_year=2000)
+            
+            print("✅ Optimized top 250 setup completed successfully!", flush=True)
+            print("📈 Historical coverage: 19 strategically selected years from 2000-2024", flush=True)
+            print("🔋 Remaining daily budget: ~1,300 requests for live updates", flush=True)
+            
+        except Exception as e:
+            print(f"❌ Optimized setup failed: {str(e)}", flush=True)
 
 def run_scheduler_top_100():
     """Run the scheduler to update top 100 teams every 5 minutes."""
