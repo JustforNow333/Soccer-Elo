@@ -1228,6 +1228,75 @@ class APIFootballImporter:
                 print(f"  {i+1}. {team}")
             if len(unmapped_remaining) > 10:
                 print(f"  ... and {len(unmapped_remaining) - 10} more")
+        
+        # CRITICAL: Create Team database records from mappings (was missing!)
+        print(f"\n🏗️  Creating Team database records from {progress['mapped']} mappings...")
+        created_teams = self.create_teams_from_mappings()
+        print(f"✅ Team database creation complete: {created_teams} teams created")
+
+    def create_teams_from_mappings(self) -> int:
+        """
+        Create actual Team database records from the team mappings.
+        This is the missing step between mapping and historical import.
+        Returns the number of teams created.
+        """
+        print("🏗️  Creating Team database records from mappings...")
+        
+        team_mapper = get_team_mapper()
+        mappings = team_mapper.get_all_mappings()
+        
+        if not mappings:
+            print("❌ No team mappings found! Run map_top_250_teams() first.")
+            return 0
+        
+        print(f"📊 Creating {len(mappings)} team records...")
+        
+        created_count = 0
+        
+        for team_name, mapping_data in mappings.items():
+            api_id = mapping_data.get('api_id')
+            league = mapping_data.get('league', 'Unknown')
+            
+            if not api_id:
+                continue
+            
+            # Check if team already exists
+            existing_team = Team.query.filter(
+                (Team.api_football_id == api_id) | 
+                (Team.name == self.normalize_team_name(team_name))
+            ).first()
+            
+            if existing_team:
+                # Update if needed
+                if not existing_team.api_football_id:
+                    existing_team.api_football_id = api_id
+                    db.session.commit()
+                    print(f"🔄 Updated: {team_name} (added API ID)")
+                continue
+            
+            # Create new team record
+            normalized_name = self.normalize_team_name(team_name)
+            team = Team(
+                name=normalized_name,
+                league=league,
+                api_football_id=api_id
+            )
+            
+            try:
+                db.session.add(team)
+                db.session.commit()
+                created_count += 1
+                print(f"✅ Created: {normalized_name} ({league}) - API ID: {api_id}")
+                
+                # Add to cache to avoid duplicates
+                self.cached_teams.add(api_id)
+                
+            except Exception as e:
+                print(f"❌ Failed to create {normalized_name}: {e}")
+                db.session.rollback()
+        
+        print(f"🎯 Team creation complete: {created_count} teams created")
+        return created_count
 
     def map_top_250_teams(self) -> None:
         """
@@ -1557,9 +1626,21 @@ class APIFootballImporter:
         team_mapper = get_team_mapper()
         progress = team_mapper.get_mapping_progress()
         
-        if progress['mapped'] < 130:  # Temporarily lowered from 200 to allow progress
-            print(f"❌ Insufficient teams mapped ({progress['mapped']}/250). Need at least 130 to proceed.")
+        if progress['mapped'] < 50:  # Lowered threshold to be more permissive
+            print(f"❌ Insufficient teams mapped ({progress['mapped']}/250). Need at least 50 to proceed.")
             return
+        
+        # Step 1.5: Create Team database records from mappings (CRITICAL FIX!)
+        print("\n" + "="*60)
+        print("📍 STEP 1.5: Creating Team Database Records (No API requests)")
+        print("="*60)
+        created_teams = self.create_teams_from_mappings()
+        
+        if created_teams == 0:
+            print("❌ No teams were created in database! Cannot proceed with historical import.")
+            return
+        
+        print(f"✅ Successfully created {created_teams} teams in database")
         
         # Step 2: Budget-aware historical import (~5800 requests)
         print("\n" + "="*60)

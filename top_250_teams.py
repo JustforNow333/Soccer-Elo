@@ -324,6 +324,19 @@ class TeamMapper:
                 ids.append(self.team_mapping[team_name].api_id)
         return ids
     
+    def get_all_mappings(self) -> Dict[str, Dict]:
+        """Get all team mappings as a dictionary for database creation"""
+        mappings = {}
+        for team_name in TOP_250_TEAMS:
+            if team_name in self.team_mapping and self.team_mapping[team_name].api_id:
+                team_info = self.team_mapping[team_name]
+                mappings[team_name] = {
+                    'api_id': team_info.api_id,
+                    'league': team_info.league,
+                    'country': team_info.country
+                }
+        return mappings
+    
     def get_mapping_progress(self) -> Dict[str, int]:
         """Get mapping progress statistics"""
         total = len(TOP_250_TEAMS)
