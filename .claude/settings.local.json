@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:www.api-football.com)"
+      "WebFetch(domain:www.api-football.com)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

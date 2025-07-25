@@ -317,14 +317,20 @@ def main():
         if args.setup_top_250:
             print("🚀 Complete top 250 setup starting (optimized for <7,500 requests)...", flush=True)
             
-            # Use enhanced single-day import method to stay under API limits
-            print("📊 Using enhanced import method with smart request budgeting...", flush=True)
-            setup_top_250_optimized()
-            
-            # Start scheduler
-            print("📅 Starting top 250 scheduler...", flush=True)
-            print("✅ Setup complete! Starting continuous updates...", flush=True)
-            run_scheduler("top-250")
+            try:
+                # Use enhanced single-day import method to stay under API limits
+                print("📊 Using enhanced import method with smart request budgeting...", flush=True)
+                setup_top_250_optimized()
+                
+                # Start scheduler
+                print("📅 Starting top 250 scheduler...", flush=True)
+                print("✅ Setup complete! Starting continuous updates...", flush=True)
+                run_scheduler("top-250")
+            except Exception as e:
+                print(f"❌ Setup failed with error: {str(e)}", flush=True)
+                print("🔄 You can restart the setup process by running the same command again", flush=True)
+                import traceback
+                traceback.print_exc()
             return
             
         if args.status:
@@ -608,6 +614,114 @@ def update_top_250_recent_matches():
         except Exception as e:
             print(f"❌ Recent match update failed: {str(e)}", flush=True)
 
+def map_top_250_teams():
+    """Map the top 250 teams to their API IDs (one-time setup)"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available, skipping...", flush=True)
+        return
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set, skipping API import...", flush=True)
+        return
+    
+    print("🗺️  Mapping top 250 teams to API IDs...", flush=True)
+    
+    with app.app_context():
+        try:
+            # Run database migration first
+            print("🔄 Creating database tables...", flush=True)
+            migrate_database()
+            print("✅ Database tables created/verified", flush=True)
+            
+            # Check current status
+            team_mapper = get_team_mapper()
+            initial_progress = team_mapper.get_mapping_progress()
+            print(f"📊 Current mapping status: {initial_progress['mapped']}/{initial_progress['total']} teams ({initial_progress['progress_percent']}%)", flush=True)
+            
+            if initial_progress['mapped'] >= initial_progress['total']:
+                print("✅ All teams already mapped!", flush=True)
+                return
+            
+            # Initialize importer with conservative settings for mapping
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=0.6,  # Balanced speed for mapping
+                max_requests_per_day=7000  # Conservative for mapping
+            )
+            
+            print(f"🚀 Starting team mapping for {initial_progress['unmapped']} remaining teams...", flush=True)
+            importer.map_top_250_teams_optimized()
+            
+            # Show final progress
+            final_progress = team_mapper.get_mapping_progress()
+            print(f"✅ Mapping complete: {final_progress['mapped']}/{final_progress['total']} teams ({final_progress['progress_percent']}%)", flush=True)
+            print(f"📊 Mapped {final_progress['mapped'] - initial_progress['mapped']} new teams in this run", flush=True)
+            
+        except KeyboardInterrupt:
+            print("🛑 Team mapping interrupted by user", flush=True)
+            team_mapper = get_team_mapper()
+            progress = team_mapper.get_mapping_progress()
+            print(f"💾 Current progress saved: {progress['mapped']}/{progress['total']} teams", flush=True)
+        except Exception as e:
+            print(f"❌ Team mapping failed: {e}", flush=True)
+            print("🔍 Error details:", flush=True)
+            import traceback
+            traceback.print_exc()
+            # Still show current progress
+            try:
+                team_mapper = get_team_mapper()
+                progress = team_mapper.get_mapping_progress()
+                print(f"💾 Progress before error: {progress['mapped']}/{progress['total']} teams", flush=True)
+            except:
+                pass
+
+def import_top_250_historical():
+    """Import historical data for top 250 teams (requires teams to be mapped first)"""
+    if not API_IMPORT_AVAILABLE:
+        print("❌ API import system not available, skipping...", flush=True)
+        return
+    
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("❌ API_FOOTBALL_KEY not set, skipping API import...", flush=True)
+        return
+    
+    print("📚 Importing historical data for top 250 teams...", flush=True)
+    
+    with app.app_context():
+        try:
+            # Check if teams are mapped first
+            team_mapper = get_team_mapper()
+            progress = team_mapper.get_mapping_progress()
+            print(f"📊 Team mapping status: {progress['mapped']}/{progress['total']} teams ({progress['progress_percent']}%)", flush=True)
+            
+            if progress['mapped'] == 0:
+                print("❌ No teams mapped yet! Run --map-teams first.", flush=True)
+                return
+            
+            migrate_database()
+            
+            # Initialize importer
+            importer = APIFootballImporter(
+                api_key=api_key,
+                current_season=datetime.now().year,
+                request_delay=0.5,
+                max_requests_per_day=7000
+            )
+            
+            print("🚀 Starting historical data import...", flush=True)
+            importer.import_top_250_teams_historical_optimized(start_year=2000)
+            
+            print("✅ Historical data import completed!", flush=True)
+            
+        except Exception as e:
+            print(f"❌ Historical import failed: {e}", flush=True)
+            print("🔍 Error details:", flush=True)
+            import traceback
+            traceback.print_exc()
+
 def setup_top_250_optimized():
     """Optimized top 250 setup that stays under 7,500 requests per day"""
     if not API_IMPORT_AVAILABLE:
@@ -624,7 +738,15 @@ def setup_top_250_optimized():
     
     with app.app_context():
         try:
+            # Run database migration first
+            print("🔄 Creating database tables...", flush=True)
             migrate_database()
+            print("✅ Database tables created/verified", flush=True)
+            
+            # Check current mapping status
+            team_mapper = get_team_mapper()
+            progress = team_mapper.get_mapping_progress()
+            print(f"📊 Current mapping status: {progress['mapped']}/{progress['total']} teams ({progress['progress_percent']}%)", flush=True)
             
             importer = APIFootballImporter(
                 api_key=api_key,
@@ -641,14 +763,26 @@ def setup_top_250_optimized():
             # - ~5,800 requests for historical data
             # - ~50 requests for fixture updates
             # - Total: ~6,200 requests
+            print("🚀 Starting enhanced single-day import...", flush=True)
             importer.single_day_complete_import_enhanced(start_year=2000)
             
             print("✅ Optimized top 250 setup completed successfully!", flush=True)
             print("📈 Historical coverage: 19 strategically selected years from 2000-2024", flush=True)
             print("🔋 Remaining daily budget: ~1,300 requests for live updates", flush=True)
             
+            # Show final status
+            final_progress = team_mapper.get_mapping_progress()
+            print(f"🎯 Final mapping status: {final_progress['mapped']}/{final_progress['total']} teams ({final_progress['progress_percent']}%)", flush=True)
+            
+        except KeyboardInterrupt:
+            print("🛑 Setup interrupted by user", flush=True)
+            raise
         except Exception as e:
             print(f"❌ Optimized setup failed: {str(e)}", flush=True)
+            print("🔍 Error details:", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
 
 def run_scheduler_top_100():
     """Run the scheduler to update top 100 teams every 5 minutes."""

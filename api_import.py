@@ -255,7 +255,7 @@ class APIFootballImporter:
         
         try:
             time.sleep(self.request_delay)  # Throttle requests
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            response = requests.get(url, headers=self.headers, params=params, timeout=15)  # Reduced timeout
             self.requests_made += 1
             self.stats["requests_made"] = self.requests_made
             
@@ -1276,7 +1276,8 @@ class APIFootballImporter:
         
         # Get all leagues once - major optimization  
         print("🌍 Getting all leagues...")
-        leagues = self.get_top_leagues(200)  # Increased to 200 leagues for better coverage
+        # Start with top 100 leagues for faster deployment, can expand later
+        leagues = self.get_top_leagues(100)  # Reduced from 200 to 100 for faster processing
         self._increment_request_count()
         
         # Create a comprehensive team database from all leagues
@@ -1290,7 +1291,11 @@ class APIFootballImporter:
                 break
                 
             print(f"   Processing league {i}/{len(leagues)}: {league['name']}")
-            teams = self.get_league_teams(league['id'], self.current_season)
+            try:
+                teams = self.get_league_teams(league['id'], self.current_season)
+            except Exception as e:
+                print(f"   ⚠️  Failed to get teams for league {league['name']}: {e}")
+                continue  # Skip this league and continue with others
             
             for team in teams:
                 # Store multiple name variations for better matching
@@ -1322,6 +1327,24 @@ class APIFootballImporter:
                         all_teams[no_accents] = team
         
         print(f"🎯 Built database of {len(all_teams)} team name variants")
+        
+        # If we have very few teams in our database, add major league teams as fallback
+        if len(all_teams) < 1000:
+            print("⚠️  Limited team database detected, adding major league fallback...")
+            major_leagues = ['39', '140', '78', '61', '135', '88', '94']  # Premier, La Liga, Bundesliga, Ligue 1, Serie A, Eredivisie, Primeira Liga
+            for league_id in major_leagues:
+                if self.requests_made >= self.max_requests_per_day - 10:
+                    break
+                try:
+                    print(f"   Adding teams from major league {league_id}")
+                    teams = self.get_league_teams(int(league_id), self.current_season)
+                    for team in teams:
+                        original_name = team['name']
+                        all_teams[original_name.lower()] = team
+                        all_teams[self._clean_team_name(original_name).lower()] = team
+                except Exception as e:
+                    print(f"   ⚠️  Failed to add major league {league_id}: {e}")
+            print(f"🎯 Enhanced database now has {len(all_teams)} team name variants")
         
         # Now efficiently match our 250 teams
         matched_count = 0
@@ -1393,8 +1416,8 @@ class APIFootballImporter:
                 matched_count += 1
                 print(f"✅ Mapped: {team_name} -> {matched_team['name']} (ID: {matched_team['id']})")
                 
-                # Save progress every 10 teams to avoid losing work on server restarts
-                if matched_count % 10 == 0:
+                # Save progress every 5 teams to avoid losing work on server restarts/timeouts
+                if matched_count % 5 == 0:
                     team_mapper.save_mapping()
                     print(f"💾 Saved progress: {matched_count} teams mapped so far")
             else:
@@ -1446,22 +1469,35 @@ class APIFootballImporter:
             if not api_id:
                 continue
             
-            # Check if team already exists
-            existing_team = Team.query.filter(
-                (Team.api_football_id == api_id) | 
-                (Team.name == self.normalize_team_name(team_name))
-            ).first()
+            # Check if team already exists by API ID (most reliable)
+            existing_team = Team.query.filter_by(api_football_id=api_id).first()
             
             if existing_team:
-                # Update if needed
-                if not existing_team.api_football_id:
-                    existing_team.api_football_id = api_id
-                    db.session.commit()
-                    print(f"🔄 Updated: {team_name} (added API ID)")
+                # Team already exists with this API ID
+                print(f"🔄 Already exists: {team_name} -> {existing_team.name} (API ID: {api_id})")
+                continue
+                
+            # Check by normalized name as secondary check
+            normalized_name = self.normalize_team_name(team_name)
+            existing_by_name = Team.query.filter_by(name=normalized_name).first()
+            
+            if existing_by_name:
+                # Update existing team with API ID if missing
+                if not existing_by_name.api_football_id:
+                    existing_by_name.api_football_id = api_id
+                    existing_by_name.league = league  # Also update league
+                    try:
+                        db.session.commit()
+                        print(f"🔄 Updated: {team_name} (added API ID {api_id} and league {league})")
+                        created_count += 1  # Count as created since we're fixing the data
+                    except Exception as e:
+                        print(f"❌ Failed to update {team_name}: {e}")
+                        db.session.rollback()
+                else:
+                    print(f"🔄 Already exists: {team_name} -> {existing_by_name.name}")
                 continue
             
             # Create new team record
-            normalized_name = self.normalize_team_name(team_name)
             team = Team(
                 name=normalized_name,
                 league=league,
@@ -1474,12 +1510,15 @@ class APIFootballImporter:
                 created_count += 1
                 print(f"✅ Created: {normalized_name} ({league}) - API ID: {api_id}")
                 
-                # Add to cache to avoid duplicates
-                self.cached_teams.add(api_id)
+                # Add to cache to avoid duplicates if cache exists
+                if hasattr(self, 'cached_teams'):
+                    self.cached_teams.add(api_id)
                 
             except Exception as e:
                 print(f"❌ Failed to create {normalized_name}: {e}")
+                print(f"   Error details: {str(e)}")
                 db.session.rollback()
+                # Continue with other teams even if one fails
         
         print(f"🎯 Team creation complete: {created_count} teams created")
         return created_count
