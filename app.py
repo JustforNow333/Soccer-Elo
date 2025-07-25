@@ -262,63 +262,74 @@ def data_status():
 
 @app.route("/wipe-db/", methods=["POST"])
 def wipe_db():
-    """Fast database wipe - delete data in batches to avoid timeouts"""
+    """Fast database wipe with proper transaction handling and authentication"""
+    # CRITICAL FIX: Add basic authentication check
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or auth_header != "Bearer admin-wipe-token":
+        return jsonify({"error": "Unauthorized - missing or invalid authorization"}), 401
+        
     try:
         print("🧹 Starting fast database wipe...", flush=True)
 
-        # Delete in batches to avoid memory issues and timeouts
-        batch_size = 1000
-        
-        # ELO Ratings
-        while True:
-            batch = EloRating.query.limit(batch_size).all()
-            if not batch:
-                break
-            for item in batch:
-                db.session.delete(item)
-            db.session.commit()
-            print(f"Deleted {len(batch)} ELO ratings", flush=True)
-        
-        # Matches
-        while True:
-            batch = Match.query.limit(batch_size).all()
-            if not batch:
-                break
-            for item in batch:
-                db.session.delete(item)
-            db.session.commit()
-            print(f"Deleted {len(batch)} matches", flush=True)
-        
-        # Fixtures
-        Fixture.query.delete()
-        db.session.commit()
-        print("Deleted all fixtures", flush=True)
-        
-        # Teams
-        while True:
-            batch = Team.query.limit(batch_size).all()
-            if not batch:
-                break
-            for item in batch:
-                db.session.delete(item)
-            db.session.commit()
-            print(f"Deleted {len(batch)} teams", flush=True)
-        
-        # Users
-        User.query.delete()
-        db.session.commit()
-        print("Deleted all users", flush=True)
-        
-        # Reset auto-increment sequences to start fresh at 1
-        print("🔄 Resetting ID sequences...", flush=True)
-        db.session.execute(db.text("ALTER SEQUENCE teams_id_seq RESTART WITH 1;"))
-        db.session.execute(db.text("ALTER SEQUENCE matches_id_seq RESTART WITH 1;"))
-        db.session.execute(db.text("ALTER SEQUENCE elo_ratings_id_seq RESTART WITH 1;"))
-        db.session.execute(db.text("ALTER SEQUENCE fixtures_id_seq RESTART WITH 1;"))
-        db.session.execute(db.text("ALTER SEQUENCE users_id_seq RESTART WITH 1;"))
-        db.session.commit()
-        print("✅ All ID sequences reset to start at 1", flush=True)
-
+        # CRITICAL FIX: Use single atomic transaction for entire wipe
+        with db.session.begin():
+            # Delete in reverse dependency order to avoid foreign key violations
+            batch_size = 1000
+            
+            # ELO Ratings (no dependencies)
+            total_deleted = 0
+            while True:
+                batch = EloRating.query.limit(batch_size).all()
+                if not batch:
+                    break
+                for item in batch:
+                    db.session.delete(item)
+                total_deleted += len(batch)
+                print(f"Deleted {len(batch)} ELO ratings (total: {total_deleted})", flush=True)
+            
+            # Matches (depends on teams)
+            total_deleted = 0
+            while True:
+                batch = Match.query.limit(batch_size).all()
+                if not batch:
+                    break
+                for item in batch:
+                    db.session.delete(item)
+                total_deleted += len(batch)
+                print(f"Deleted {len(batch)} matches (total: {total_deleted})", flush=True)
+            
+            # Fixtures (depends on teams)
+            fixture_count = Fixture.query.count()
+            Fixture.query.delete()
+            print(f"Deleted {fixture_count} fixtures", flush=True)
+            
+            # Teams (referenced by matches, fixtures, elo_ratings)
+            total_deleted = 0
+            while True:
+                batch = Team.query.limit(batch_size).all()
+                if not batch:
+                    break
+                for item in batch:
+                    db.session.delete(item)
+                total_deleted += len(batch)
+                print(f"Deleted {len(batch)} teams (total: {total_deleted})", flush=True)
+            
+            # Users (no dependencies on our main data)
+            user_count = User.query.count()
+            User.query.delete()
+            print(f"Deleted {user_count} users", flush=True)
+            
+            # Reset auto-increment sequences within the same transaction
+            print("🔄 Resetting ID sequences...", flush=True)
+            db.session.execute(db.text("ALTER SEQUENCE teams_id_seq RESTART WITH 1;"))
+            db.session.execute(db.text("ALTER SEQUENCE matches_id_seq RESTART WITH 1;"))
+            db.session.execute(db.text("ALTER SEQUENCE elo_ratings_id_seq RESTART WITH 1;"))
+            db.session.execute(db.text("ALTER SEQUENCE fixtures_id_seq RESTART WITH 1;"))
+            db.session.execute(db.text("ALTER SEQUENCE users_id_seq RESTART WITH 1;"))
+            print("✅ All ID sequences reset to start at 1", flush=True)
+            
+            # Transaction commits automatically when exiting 'with' block
+            
         print("✅ Complete database wipe finished!", flush=True)
         return jsonify({
             "status": "Complete database wipe finished",
@@ -332,7 +343,12 @@ def wipe_db():
 
 @app.route("/clear-fixtures/", methods=["POST"])
 def clear_fixtures():
-    """Clear only the fixtures table (preserves teams and matches with Elo ratings)"""
+    """Clear only the fixtures table with authentication (preserves teams and matches with Elo ratings)"""
+    # CRITICAL FIX: Add basic authentication check
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or auth_header != "Bearer admin-clear-token":
+        return jsonify({"error": "Unauthorized - missing or invalid authorization"}), 401
+        
     try:
         deleted_count = Fixture.query.count()
         Fixture.query.delete()
@@ -974,38 +990,61 @@ def cancel_subscription():
         return jsonify({"error": str(e)}), 500
     
 def update_elo_after_match(match_id, k=20):
-    """Update Elo ratings for teams after a match - returns consistent dict format"""
+    """Update Elo ratings for teams after a match with race condition protection"""
     try:
-        match = Match.query.get(match_id)
-        if not match:
-            return {"error": "Match not found"}
+        # CRITICAL FIX: Use atomic transaction with row locking
+        with db.session.begin():
+            match = Match.query.get(match_id)
+            if not match:
+                return {"error": "Match not found"}
 
-        home_team = Team.query.get(match.home_team_id)
-        away_team = Team.query.get(match.away_team_id)
+            home_team = Team.query.get(match.home_team_id)
+            away_team = Team.query.get(match.away_team_id)
 
-        if home_team is None or away_team is None:
-            return {"error": "Home or away team not found"}
+            if home_team is None or away_team is None:
+                return {"error": "Home or away team not found"}
 
-        # Get latest ratings with race condition protection
-        home_rating = EloRating.query.filter_by(team_id=home_team.id).order_by(EloRating.date.desc()).first()
-        away_rating = EloRating.query.filter_by(team_id=away_team.id).order_by(EloRating.date.desc()).first()
+            # CRITICAL FIX: Lock rows to prevent race conditions in rating reads
+            home_rating = EloRating.query.filter_by(team_id=home_team.id)\
+                                        .order_by(EloRating.date.desc())\
+                                        .with_for_update().first()
+            away_rating = EloRating.query.filter_by(team_id=away_team.id)\
+                                        .order_by(EloRating.date.desc())\
+                                        .with_for_update().first()
 
-        home_score, away_score = get_match_result(match.home_score, match.away_score)
-        home_rating_val = home_rating.rating if home_rating else 1000
-        away_rating_val = away_rating.rating if away_rating else 1000
+            home_score, away_score = get_match_result(match.home_score, match.away_score)
+            home_rating_val = home_rating.rating if home_rating else 1000
+            away_rating_val = away_rating.rating if away_rating else 1000
 
-        # Calculate new ratings
-        new_home_rating = update_elo(home_rating_val, away_rating_val, home_score, k)
-        new_away_rating = update_elo(away_rating_val, home_rating_val, away_score, k)
+            # Validate ratings before calculation
+            if not (0 <= home_rating_val <= 5000) or not (0 <= away_rating_val <= 5000):
+                return {"error": f"Invalid rating values: home={home_rating_val}, away={away_rating_val}"}
 
-        # Add new Elo ratings (but don't commit here - let caller handle transaction)
-        db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=new_home_rating))
-        db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=new_away_rating))
-        
-        # Return success without committing (caller handles commit)
-        return {"message": "Elo ratings calculated and added to session", "success": True}
+            # Calculate new ratings
+            new_home_rating = update_elo(home_rating_val, away_rating_val, home_score, k)
+            new_away_rating = update_elo(away_rating_val, home_rating_val, away_score, k)
+
+            # Validate new ratings
+            if not (0 <= new_home_rating <= 5000) or not (0 <= new_away_rating <= 5000):
+                return {"error": f"Invalid calculated ratings: home={new_home_rating}, away={new_away_rating}"}
+
+            # Check if ratings already exist for this date to prevent duplicates
+            existing_home = EloRating.query.filter_by(team_id=home_team.id, date=match.date).first()
+            existing_away = EloRating.query.filter_by(team_id=away_team.id, date=match.date).first()
+            
+            if existing_home or existing_away:
+                return {"error": "Elo ratings already exist for this match date"}
+
+            # Add new Elo ratings within the same transaction
+            db.session.add(EloRating(team_id=home_team.id, date=match.date, rating=new_home_rating))
+            db.session.add(EloRating(team_id=away_team.id, date=match.date, rating=new_away_rating))
+            
+            # Transaction commits automatically when exiting 'with' block
+            
+        return {"message": "Elo ratings updated successfully", "success": True}
         
     except Exception as e:
+        db.session.rollback()
         return {"error": f"Elo calculation failed: {str(e)}"}
 
 # NO scheduler runs at startup anymore
@@ -1439,7 +1478,12 @@ def import_top_250_matches():
 
 @app.route("/api/reset-and-import", methods=["POST"])
 def reset_and_import():
-    """Wipe database and import clean data"""
+    """Wipe database and import clean data with authentication"""
+    # CRITICAL FIX: Add basic authentication check
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or auth_header != "Bearer admin-reset-token":
+        return jsonify({"error": "Unauthorized - missing or invalid authorization"}), 401
+        
     try:
         print("🗑️  Resetting database...", flush=True)
         

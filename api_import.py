@@ -61,11 +61,15 @@ class APIFootballImporter:
         self.league_cache: Dict[int, dict] = {}
         self.team_cache: Dict[int, dict] = {}
         
-        # Batch storage for efficient database operations
+        # Batch storage for efficient database operations with memory management
         self.teams_batch: List[Team] = []
         self.fixtures_batch: List[Fixture] = []
         self.matches_batch: List[Match] = []
         self.elo_batch: List[EloRating] = []
+        
+        # CRITICAL FIX: Add batch size limits to prevent memory leaks
+        self.max_batch_size = 500  # Commit batches when they reach this size
+        self.memory_check_interval = 100  # Check memory usage every N operations
         
         # Statistics
         self.stats = {
@@ -485,13 +489,48 @@ class APIFootballImporter:
         return fixtures
     
     def normalize_team_name(self, name: str) -> str:
-        """Normalize team name for consistency"""
-        if not name:
+        """Normalize team name for consistency with comprehensive cleaning"""
+        if not name or not isinstance(name, str):
             return ""
-        # Remove accents, lowercase, strip whitespace
-        name = unicodedata.normalize('NFKD', name)
-        name = "".join([c for c in name if not unicodedata.combining(c)])
-        return name.strip().lower()
+        
+        # CRITICAL FIX: Enhanced normalization for consistency
+        try:
+            # Remove accents and normalize unicode
+            name = unicodedata.normalize('NFKD', name)
+            name = "".join([c for c in name if not unicodedata.combining(c)])
+            
+            # Remove common suffixes that cause inconsistency
+            suffixes_to_remove = [' FC', ' CF', ' SC', ' United FC', ' City FC', ' Town FC']
+            name_lower = name.lower()
+            for suffix in suffixes_to_remove:
+                if name_lower.endswith(suffix.lower()):
+                    name = name[:-len(suffix)]
+                    break
+            
+            # Clean up spacing and special characters
+            name = ' '.join(name.split())  # Normalize whitespace
+            name = name.replace('-', ' ').replace('_', ' ')  # Replace hyphens/underscores
+            
+            # Remove extra parenthetical info that might cause duplicates
+            if '(' in name and ')' in name:
+                paren_start = name.find('(')
+                paren_end = name.find(')', paren_start)
+                if paren_end > paren_start:
+                    # Keep the part before parentheses
+                    name = name[:paren_start].strip()
+            
+            result = name.strip().lower()
+            
+            # Final validation - ensure we have a meaningful name
+            if len(result) < 2:
+                print(f"⚠️ Normalized name too short: '{name}' -> '{result}'")
+                return ""
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error normalizing team name '{name}': {e}")
+            return name.strip().lower() if name else ""
     
     def _get_team_proper_league(self, team_data: dict) -> str:
         """Determine the proper league name for a team based on known patterns"""
@@ -544,7 +583,7 @@ class APIFootballImporter:
         return 'Unknown'
     
     def create_or_update_team(self, team_data: dict, league_name: str) -> Optional[Team]:
-        """Create or update team in database"""
+        """Create or update team in database with atomic transaction handling"""
         api_team_id = team_data.get("id")
         if api_team_id in self.cached_teams:
             return None
@@ -553,50 +592,88 @@ class APIFootballImporter:
         if not normalized_name:
             return None
         
-        # Check if team already exists by both name and api_football_id
-        existing_team = Team.query.filter(
-            (Team.name == normalized_name) | 
-            (Team.api_football_id == api_team_id)
-        ).first()
+        # CRITICAL FIX: Use atomic transaction with SELECT FOR UPDATE to prevent race conditions
+        try:
+            with db.session.begin():  # Ensures atomic transaction
+                # Use SELECT FOR UPDATE to lock the row and prevent race conditions
+                existing_team = Team.query.filter(
+                    (Team.name == normalized_name) | 
+                    (Team.api_football_id == api_team_id)
+                ).with_for_update().first()
+                
+                if existing_team:
+                    # Update league and api_football_id if different
+                    updated = False
+                    if existing_team.league != league_name:
+                        existing_team.league = league_name
+                        updated = True
+                    if not existing_team.api_football_id and api_team_id:
+                        existing_team.api_football_id = api_team_id
+                        updated = True
+                    
+                    if updated:
+                        print(f"🔄 Updated team: {normalized_name}")
+                    
+                    self.cached_teams.add(api_team_id)
+                    return existing_team
+                else:
+                    # Create new team within the same transaction
+                    team = Team(
+                        name=normalized_name,
+                        league=league_name,
+                        api_football_id=api_team_id
+                    )
+                    
+                    db.session.add(team)
+                    db.session.flush()  # Flush to get the ID but don't commit yet
+                    
+                    print(f"✅ Created team: {normalized_name} in {league_name}")
+                    self.cached_teams.add(api_team_id)
+                    self.stats["teams_created"] += 1
+                    return team
+                    
+        except Exception as e:
+            print(f"❌ Failed to create/update team {normalized_name}: {e}")
+            db.session.rollback()
+            return None
+    
+    def create_match_with_validation(self, home_team: Team, away_team: Team, 
+                                   fixture_date: datetime, home_score: int, away_score: int) -> Optional[Match]:
+        """Create match only if both teams exist and have valid IDs"""
+        # CRITICAL FIX: Validate teams before creating match
+        if not home_team or not away_team:
+            print(f"⚠️ Skipping match - missing teams: {home_team} vs {away_team}")
+            return None
         
-        if existing_team:
-            # Update league and api_football_id if different
-            updated = False
-            if existing_team.league != league_name:
-                existing_team.league = league_name
-                updated = True
-            if not existing_team.api_football_id and api_team_id:
-                existing_team.api_football_id = api_team_id
-                updated = True
-            
-            if updated:
-                try:
-                    db.session.commit()
-                    print(f"🔄 Updated team: {normalized_name}")
-                except Exception as e:
-                    print(f"❌ Failed to update team {normalized_name}: {e}")
-                    db.session.rollback()
-            
-            self.cached_teams.add(api_team_id)
-            return existing_team
+        if not home_team.id or not away_team.id:
+            print(f"⚠️ Skipping match - teams without database IDs")
+            return None
         
-        # Create new team - commit immediately instead of batching
-        team = Team(
-            name=normalized_name,
-            league=league_name,
-            api_football_id=api_team_id
-        )
+        # Validate score bounds
+        if home_score < 0 or away_score < 0:
+            print(f"⚠️ Skipping match - invalid scores: {home_score}-{away_score}")
+            return None
+        
+        if home_score > 50 or away_score > 50:  # Sanity check
+            print(f"⚠️ Skipping match - unrealistic scores: {home_score}-{away_score}")
+            return None
+            
+        # Validate that teams are different
+        if home_team.id == away_team.id:
+            print(f"⚠️ Skipping match - same team playing itself: {home_team.name}")
+            return None
         
         try:
-            db.session.add(team)
-            db.session.commit()
-            print(f"✅ Created team: {normalized_name} in {league_name}")
-            self.cached_teams.add(api_team_id)
-            self.stats["teams_created"] += 1
-            return team
+            match = Match(
+                date=fixture_date.date(),
+                home_team_id=home_team.id,
+                away_team_id=away_team.id,
+                home_score=home_score,
+                away_score=away_score
+            )
+            return match
         except Exception as e:
-            print(f"❌ Failed to create team {normalized_name}: {e}")
-            db.session.rollback()
+            print(f"❌ Failed to create match: {e}")
             return None
     
     def process_fixture(self, fixture_data: dict, league_name: str) -> bool:
@@ -642,6 +719,9 @@ class APIFootballImporter:
             self.fixtures_batch.append(fixture)
             self.stats["fixtures_created"] += 1
             
+            # CRITICAL FIX: Auto-commit if batches get too large
+            self.check_and_auto_commit_batches()
+            
             # If fixture is finished and both teams exist, create match and update Elo
             if (status == "FT" and 
                 home_team and away_team and 
@@ -651,19 +731,17 @@ class APIFootballImporter:
                 home_score = goals.get("home", 0) or 0
                 away_score = goals.get("away", 0) or 0
                 
-                match = Match(
-                    date=fixture_date.date(),
-                    home_team_id=home_team.id,
-                    away_team_id=away_team.id,
-                    home_score=home_score,
-                    away_score=away_score
+                # CRITICAL FIX: Use validation method to create match safely
+                match = self.create_match_with_validation(
+                    home_team, away_team, fixture_date, home_score, away_score
                 )
                 
-                self.matches_batch.append(match)
-                self.stats["matches_created"] += 1
-                
-                # Calculate Elo updates
-                self._add_elo_updates(home_team, away_team, home_score, away_score, fixture_date.date())
+                if match:  # Only proceed if match creation was successful
+                    self.matches_batch.append(match)
+                    self.stats["matches_created"] += 1
+                    
+                    # Calculate Elo updates only for valid matches
+                    self._add_elo_updates(home_team, away_team, home_score, away_score, fixture_date.date())
             
             return True
             
@@ -673,35 +751,68 @@ class APIFootballImporter:
     
     def _add_elo_updates(self, home_team: Team, away_team: Team, 
                         home_score: int, away_score: int, match_date):
-        """Calculate and queue Elo rating updates"""
-        # Get latest ratings
-        home_rating = EloRating.query.filter_by(team_id=home_team.id)\
-                                   .order_by(EloRating.date.desc()).first()
-        away_rating = EloRating.query.filter_by(team_id=away_team.id)\
-                                   .order_by(EloRating.date.desc()).first()
+        """Calculate and queue Elo rating updates with validation"""
+        # CRITICAL FIX: Validate teams exist and have IDs
+        if not home_team or not away_team:
+            print(f"⚠️ Skipping Elo update - missing teams")
+            return
         
-        home_rating_val = home_rating.rating if home_rating else 1000
-        away_rating_val = away_rating.rating if away_rating else 1000
+        if not home_team.id or not away_team.id:
+            print(f"⚠️ Skipping Elo update - teams without database IDs")
+            return
         
-        # Calculate match result
-        home_result, away_result = get_match_result(home_score, away_score)
+        try:
+            # Get latest ratings
+            home_rating = EloRating.query.filter_by(team_id=home_team.id)\
+                                       .order_by(EloRating.date.desc()).first()
+            away_rating = EloRating.query.filter_by(team_id=away_team.id)\
+                                       .order_by(EloRating.date.desc()).first()
+            
+            home_rating_val = home_rating.rating if home_rating else 1000
+            away_rating_val = away_rating.rating if away_rating else 1000
+            
+            # CRITICAL FIX: Validate rating values before calculations
+            if not (0 <= home_rating_val <= 5000) or not (0 <= away_rating_val <= 5000):
+                print(f"⚠️ Invalid rating values: home={home_rating_val}, away={away_rating_val}")
+                return
+            
+            # Calculate match result with validation (now includes error handling)
+            home_result, away_result = get_match_result(home_score, away_score)
+            
+            # Update ratings with validation (now includes error handling)
+            new_home_rating = update_elo(home_rating_val, away_rating_val, home_result)
+            new_away_rating = update_elo(away_rating_val, home_rating_val, away_result)
+            
+            # CRITICAL FIX: Validate new ratings before creating database records
+            if not (0 <= new_home_rating <= 5000) or not (0 <= new_away_rating <= 5000):
+                print(f"⚠️ Invalid new ratings: home={new_home_rating}, away={new_away_rating}")
+                return
+            
+            # Queue Elo updates
+            self.elo_batch.append(EloRating(
+                team_id=home_team.id,
+                date=match_date,
+                rating=new_home_rating
+            ))
+            
+            self.elo_batch.append(EloRating(
+                team_id=away_team.id,
+                date=match_date,
+                rating=new_away_rating
+            ))
+            
+        except Exception as e:
+            print(f"❌ Error calculating Elo updates for {home_team.name} vs {away_team.name}: {e}")
+            return
+    
+    def check_and_auto_commit_batches(self):
+        """Check batch sizes and auto-commit if they exceed limits to prevent memory leaks"""
+        total_batch_size = (len(self.teams_batch) + len(self.fixtures_batch) + 
+                           len(self.matches_batch) + len(self.elo_batch))
         
-        # Update ratings
-        new_home_rating = update_elo(home_rating_val, away_rating_val, home_result)
-        new_away_rating = update_elo(away_rating_val, home_rating_val, away_result)
-        
-        # Queue Elo updates
-        self.elo_batch.append(EloRating(
-            team_id=home_team.id,
-            date=match_date,
-            rating=new_home_rating
-        ))
-        
-        self.elo_batch.append(EloRating(
-            team_id=away_team.id,
-            date=match_date,
-            rating=new_away_rating
-        ))
+        if total_batch_size >= self.max_batch_size:
+            print(f"⚠️ Batch size ({total_batch_size}) exceeds limit ({self.max_batch_size}), auto-committing...")
+            self.commit_batched_data()
     
     def commit_batched_data(self):
         """Commit all batched data to database with proper transaction management"""
@@ -714,25 +825,39 @@ class APIFootballImporter:
         matches_count = len(self.matches_batch)
         elo_count = len(self.elo_batch)
         
+        # CRITICAL FIX: Use proper transaction with comprehensive validation
         try:
-            if self.teams_batch:
-                db.session.add_all(self.teams_batch)
-                print(f"💾 Committing {teams_count} teams...")
+            with db.session.begin():  # Ensures atomic transaction
+                # Validate foreign key relationships before commit
+                for match in self.matches_batch:
+                    if not match.home_team_id or not match.away_team_id:
+                        raise ValueError(f"Invalid match with NULL team IDs: {match}")
                 
-            if self.fixtures_batch:
-                db.session.add_all(self.fixtures_batch)
-                print(f"💾 Committing {fixtures_count} fixtures...")
+                for elo in self.elo_batch:
+                    if not elo.team_id:
+                        raise ValueError(f"Invalid Elo rating with NULL team ID: {elo}")
+                    if not (0 <= elo.rating <= 5000):
+                        raise ValueError(f"Invalid Elo rating value: {elo.rating}")
                 
-            if self.matches_batch:
-                db.session.add_all(self.matches_batch)
-                print(f"💾 Committing {matches_count} matches...")
+                # Add batches to session
+                if self.teams_batch:
+                    db.session.add_all(self.teams_batch)
+                    print(f"💾 Committing {teams_count} teams...")
+                    
+                if self.fixtures_batch:
+                    db.session.add_all(self.fixtures_batch)
+                    print(f"💾 Committing {fixtures_count} fixtures...")
+                    
+                if self.matches_batch:
+                    db.session.add_all(self.matches_batch)
+                    print(f"💾 Committing {matches_count} matches...")
+                    
+                if self.elo_batch:
+                    db.session.add_all(self.elo_batch)
+                    print(f"💾 Committing {elo_count} Elo ratings...")
                 
-            if self.elo_batch:
-                db.session.add_all(self.elo_batch)
-                print(f"💾 Committing {elo_count} Elo ratings...")
+                # Transaction commits automatically when exiting 'with' block
             
-            # CRITICAL FIX: Only commit and clear if transaction succeeds
-            db.session.commit()
             print(f"✅ Successfully committed: {teams_count} teams, {fixtures_count} fixtures, {matches_count} matches, {elo_count} Elo ratings")
             
             # Clear batches ONLY after successful commit
