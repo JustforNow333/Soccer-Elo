@@ -262,12 +262,7 @@ def data_status():
 
 @app.route("/wipe-db/", methods=["POST"])
 def wipe_db():
-    """Fast database wipe with proper transaction handling and authentication"""
-    # CRITICAL FIX: Add basic authentication check
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or auth_header != "Bearer admin-wipe-token":
-        return jsonify({"error": "Unauthorized - missing or invalid authorization"}), 401
-        
+    """Fast database wipe with proper transaction handling"""
     try:
         print("🧹 Starting fast database wipe...", flush=True)
 
@@ -343,12 +338,7 @@ def wipe_db():
 
 @app.route("/clear-fixtures/", methods=["POST"])
 def clear_fixtures():
-    """Clear only the fixtures table with authentication (preserves teams and matches with Elo ratings)"""
-    # CRITICAL FIX: Add basic authentication check
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or auth_header != "Bearer admin-clear-token":
-        return jsonify({"error": "Unauthorized - missing or invalid authorization"}), 401
-        
+    """Clear only the fixtures table (preserves teams and matches with Elo ratings)"""
     try:
         deleted_count = Fixture.query.count()
         Fixture.query.delete()
@@ -1478,12 +1468,7 @@ def import_top_250_matches():
 
 @app.route("/api/reset-and-import", methods=["POST"])
 def reset_and_import():
-    """Wipe database and import clean data with authentication"""
-    # CRITICAL FIX: Add basic authentication check
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or auth_header != "Bearer admin-reset-token":
-        return jsonify({"error": "Unauthorized - missing or invalid authorization"}), 401
-        
+    """Wipe database and import clean data"""
     try:
         print("🗑️  Resetting database...", flush=True)
         
