@@ -493,6 +493,56 @@ class APIFootballImporter:
         name = "".join([c for c in name if not unicodedata.combining(c)])
         return name.strip().lower()
     
+    def _get_team_proper_league(self, team_data: dict) -> str:
+        """Determine the proper league name for a team based on known patterns"""
+        league_name = team_data.get('league', 'Unknown')
+        
+        # Map major teams to their proper leagues
+        team_name = team_data.get('name', '').lower()
+        
+        # Premier League teams
+        premier_teams = ['manchester united', 'manchester city', 'liverpool', 'chelsea', 'arsenal', 
+                        'tottenham', 'leicester', 'west ham', 'aston villa', 'newcastle', 
+                        'everton', 'crystal palace', 'fulham', 'leeds', 'southampton', 
+                        'burnley', 'watford', 'norwich', 'stoke', 'sunderland', 'middlesbrough', 
+                        'nottingham forest']
+        
+        # La Liga teams
+        laliga_teams = ['real madrid', 'barcelona', 'atletico madrid', 'sevilla', 'real betis', 
+                       'valencia', 'athletic club', 'celta vigo', 'real sociedad']
+        
+        # Serie A teams
+        seriea_teams = ['juventus', 'ac milan', 'inter milan', 'as roma', 'napoli', 'lazio', 
+                       'atalanta', 'fiorentina', 'torino', 'bologna', 'sampdoria', 'genoa']
+        
+        # Bundesliga teams
+        bundesliga_teams = ['bayern munich', 'borussia dortmund', 'bayer leverkusen', 
+                           'eintracht frankfurt']
+        
+        # Ligue 1 teams
+        ligue1_teams = ['paris saint-germain', 'marseille', 'monaco']
+        
+        # Check team against known leagues
+        if any(team in team_name for team in premier_teams):
+            return 'Premier League'
+        elif any(team in team_name for team in laliga_teams):
+            return 'La Liga'
+        elif any(team in team_name for team in seriea_teams):
+            return 'Serie A'
+        elif any(team in team_name for team in bundesliga_teams):
+            return 'Bundesliga'
+        elif any(team in team_name for team in ligue1_teams):
+            return 'Ligue 1'
+        
+        # For other teams, try to clean up the league name
+        if league_name and league_name != 'Unknown':
+            # Remove common league variations and clean up
+            cleaned = league_name.replace('Oberliga -', '').replace('Liga -', '').strip()
+            if len(cleaned) > 3:  # Avoid very short league names
+                return cleaned
+        
+        return 'Unknown'
+    
     def create_or_update_team(self, team_data: dict, league_name: str) -> Optional[Team]:
         """Create or update team in database"""
         api_team_id = team_data.get("id")
@@ -1175,7 +1225,7 @@ class APIFootballImporter:
                 if no_accents in all_teams:
                     matched_team = all_teams[no_accents]
             
-            # 4. Try various common variations
+            # 4. Try various common variations (with stricter matching)
             if not matched_team:
                 variations = [
                     team_name.replace('FC', '').replace('SC', '').replace('AC', '').replace('CF', '').strip().lower(),
@@ -1186,22 +1236,33 @@ class APIFootballImporter:
                 ]
                 
                 for variation in variations:
-                    if variation and variation in all_teams:
-                        matched_team = all_teams[variation]
-                        break
+                    if variation and len(variation) > 3 and variation in all_teams:
+                        candidate = all_teams[variation]
+                        # Extra validation: make sure this isn't a generic fallback
+                        candidate_name = candidate.get('name', '').lower()
+                        if ('inter' not in candidate_name or variation in candidate_name) and candidate_name != 'inter':
+                            matched_team = candidate
+                            break
             
             # 5. Fuzzy matching with stored teams (most expensive, so last)
             if not matched_team:
                 for stored_name, team_data in all_teams.items():
                     if self._is_team_name_match(team_name, stored_name):
+                        # Avoid generic "Inter" matches unless it's actually Inter Milan
+                        candidate_name = team_data.get('name', '').lower()
+                        if candidate_name == 'inter' and 'inter' not in team_name.lower():
+                            continue  # Skip this generic match
                         matched_team = team_data
                         break
             
             if matched_team:
+                # Get proper league name from the team data
+                proper_league = self._get_team_proper_league(matched_team)
+                
                 team_mapper.add_team_mapping(
                     name=team_name,
                     api_id=matched_team['id'],
-                    league=matched_team.get('league', 'Unknown'),
+                    league=proper_league,
                     country=matched_team.get('country', 'Unknown')
                 )
                 matched_count += 1
@@ -1636,11 +1697,13 @@ class APIFootballImporter:
         print("="*60)
         created_teams = self.create_teams_from_mappings()
         
-        if created_teams == 0:
-            print("❌ No teams were created in database! Cannot proceed with historical import.")
+        print(f"📊 Created {created_teams} teams in database")
+        
+        if created_teams < 10:  # Lower threshold - even 10 teams is enough to proceed
+            print(f"❌ Only {created_teams} teams created - need at least 10 to proceed with historical import.")
             return
         
-        print(f"✅ Successfully created {created_teams} teams in database")
+        print(f"✅ Successfully created {created_teams} teams in database - proceeding to historical import!")
         
         # Step 2: Budget-aware historical import (~5800 requests)
         print("\n" + "="*60)
