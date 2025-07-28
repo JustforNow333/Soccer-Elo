@@ -684,8 +684,20 @@ class APIFootballImporter:
             date_str = fixture_data.get("date")
             status = fixture_data.get("status", "NS")
             
-            if not date_str:
+            if not date_str or not api_fixture_id:
                 return False
+            
+            # CRITICAL FIX: Check if fixture already exists
+            if api_fixture_id in self.cached_fixtures:
+                return False  # Skip duplicate
+            
+            # Also check database for existing fixture
+            existing_fixture = Fixture.query.filter_by(api_football_id=api_fixture_id).first()
+            if existing_fixture:
+                # Update existing fixture instead of creating new one
+                existing_fixture.status = status
+                existing_fixture.updated_at = datetime.utcnow()
+                return True
             
             fixture_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
             
@@ -699,16 +711,51 @@ class APIFootballImporter:
             if not home_team_name or not away_team_name:
                 return False
             
-            # Find or create teams
+            # Find or create teams - CRITICAL FIX: Create teams if they don't exist
             home_team = Team.query.filter_by(name=home_team_name).first()
+            if not home_team:
+                home_team = Team(
+                    name=home_team_name,
+                    league=league_name,
+                    api_football_id=home_team_data.get("id")
+                )
+                self.teams_batch.append(home_team)
+            
             away_team = Team.query.filter_by(name=away_team_name).first()
+            if not away_team:
+                away_team = Team(
+                    name=away_team_name,
+                    league=league_name,
+                    api_football_id=away_team_data.get("id")
+                )
+                self.teams_batch.append(away_team)
+            
+            # CRITICAL FIX: Only create fixture if both teams exist or were created
+            if not home_team or not away_team:
+                print(f"❌ Skipping fixture - missing team data: {home_team_name} vs {away_team_name}")
+                return False
+            
+            # CRITICAL FIX: For new teams without IDs, we need to commit first
+            if (not hasattr(home_team, 'id') or not home_team.id or 
+                not hasattr(away_team, 'id') or not away_team.id):
+                # Commit any pending teams to get their IDs
+                if self.teams_batch:
+                    try:
+                        db.session.add_all(self.teams_batch)
+                        db.session.commit()
+                        self.teams_batch.clear()
+                        print(f"✅ Committed teams to get IDs for fixture processing")
+                    except Exception as e:
+                        print(f"❌ Failed to commit teams: {e}")
+                        db.session.rollback()
+                        return False
             
             # Create fixture record
             fixture = Fixture(
-                api_football_id=api_fixture_id,
+                api_fixture_id=api_fixture_id,
                 date=fixture_date,
-                home_team_id=home_team.id if home_team else None,
-                away_team_id=away_team.id if away_team else None,
+                home_team_id=home_team.id,
+                away_team_id=away_team.id,
                 home_team_name=home_team_data.get("name", ""),
                 away_team_name=away_team_data.get("name", ""),
                 league_name=league_name,
@@ -718,6 +765,9 @@ class APIFootballImporter:
             
             self.fixtures_batch.append(fixture)
             self.stats["fixtures_created"] += 1
+            
+            # Add to cache to prevent duplicates
+            self.cached_fixtures.add(api_fixture_id)
             
             # CRITICAL FIX: Auto-commit if batches get too large
             self.check_and_auto_commit_batches()
@@ -825,9 +875,17 @@ class APIFootballImporter:
         matches_count = len(self.matches_batch)
         elo_count = len(self.elo_batch)
         
-        # CRITICAL FIX: Use proper transaction with comprehensive validation
+        # CRITICAL FIX: Handle existing transactions properly
         try:
-            with db.session.begin():  # Ensures atomic transaction
+            # Check if there's already an active transaction
+            if db.session.in_transaction():
+                # If transaction exists, work within it
+                transaction_context = None
+            else:
+                # Start new transaction only if none exists
+                transaction_context = db.session.begin()
+            
+            try:
                 # Validate foreign key relationships before commit
                 for match in self.matches_batch:
                     if not match.home_team_id or not match.away_team_id:
@@ -856,7 +914,19 @@ class APIFootballImporter:
                     db.session.add_all(self.elo_batch)
                     print(f"💾 Committing {elo_count} Elo ratings...")
                 
-                # Transaction commits automatically when exiting 'with' block
+                # Commit the transaction
+                if transaction_context:
+                    transaction_context.commit()
+                else:
+                    db.session.commit()
+                    
+            except Exception as inner_e:
+                # Rollback the specific transaction we may have started
+                if transaction_context:
+                    transaction_context.rollback()
+                else:
+                    db.session.rollback()
+                raise inner_e
             
             print(f"✅ Successfully committed: {teams_count} teams, {fixtures_count} fixtures, {matches_count} matches, {elo_count} Elo ratings")
             
@@ -869,7 +939,7 @@ class APIFootballImporter:
         except Exception as e:
             print(f"❌ Batch commit failed: {str(e)}")
             print(f"❌ Retaining {teams_count + fixtures_count + matches_count + elo_count} items in batches for potential retry")
-            db.session.rollback()
+            # Don't rollback here if we didn't start the transaction
             # FIXED: Do NOT clear batches on failure - preserve data for retry
     
     def import_league_data(self, league: dict, max_teams: int = None):
@@ -1861,13 +1931,16 @@ class APIFootballImporter:
         print("="*60)
         created_teams = self.create_teams_from_mappings()
         
+        # CRITICAL FIX: Check total teams available, not just newly created ones
+        total_teams = Team.query.count()
         print(f"📊 Created {created_teams} teams in database")
+        print(f"📊 Total teams available: {total_teams}")
         
-        if created_teams < 10:  # Lower threshold - even 10 teams is enough to proceed
-            print(f"❌ Only {created_teams} teams created - need at least 10 to proceed with historical import.")
+        if total_teams < 10:  # Check total teams, not just newly created
+            print(f"❌ Only {total_teams} total teams available - need at least 10 to proceed with historical import.")
             return
         
-        print(f"✅ Successfully created {created_teams} teams in database - proceeding to historical import!")
+        print(f"✅ Database has {total_teams} teams available - proceeding to historical import!")
         
         # Step 2: Budget-aware historical import (~5800 requests)
         print("\n" + "="*60)
