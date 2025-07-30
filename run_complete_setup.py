@@ -218,10 +218,11 @@ def run_simple_mapping():
             print(f"🔍 ({i+1}/{min(len(unmapped_teams), max_requests)}) Searching for: {team_name}")
             
             try:
-                # Use search endpoint
+                # Use search endpoint with proper URL encoding
                 response = requests.get(
-                    f"https://v3.football.api-sports.io/teams?search={team_name}",
-                    headers=headers
+                    "https://v3.football.api-sports.io/teams",
+                    headers=headers,
+                    params={"search": team_name}  # This handles URL encoding automatically
                 )
                 
                 if response.status_code == 200:
@@ -240,8 +241,9 @@ def run_simple_mapping():
                         if team_id:
                             try:
                                 league_response = requests.get(
-                                    f"https://v3.football.api-sports.io/leagues?team={team_id}&season=2025",
-                                    headers=headers
+                                    "https://v3.football.api-sports.io/leagues",
+                                    headers=headers,
+                                    params={"team": team_id, "season": datetime.now().year}
                                 )
                                 if league_response.status_code == 200:
                                     league_data = league_response.json()

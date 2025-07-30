@@ -1268,7 +1268,7 @@ class APIFootballImporter:
             
             response = requests.get(url, headers=self.headers, params=params)
             self._increment_request_count()
-            self._log_request(f"GET {url}?search={team_name}")
+            self._log_request(f"GET {url}?search={team_name}", response.status_code)
             
             if response.status_code == 200:
                 data = response.json()
@@ -1419,7 +1419,7 @@ class APIFootballImporter:
             
             response = requests.get(url, headers=self.headers, params=params)
             self._increment_request_count()
-            self._log_request(f"GET {url}?team={team_id}&season={self.current_season}")
+            self._log_request(f"GET {url}?team={team_id}&season={self.current_season}", response.status_code)
             
             if response.status_code == 200:
                 data = response.json()

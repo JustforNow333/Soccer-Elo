@@ -231,7 +231,7 @@ TOP_250_TEAMS = [
     "Atlas",
     "Saprissa",
     "Alajuelense",
-    "Olimpia",
+    "CD Olimpia",
     "Motagua",
     "Sydney FC",
     "Melbourne Victory",
