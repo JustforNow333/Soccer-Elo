@@ -807,7 +807,38 @@ class APIFootballImporter:
                         db.session.rollback()
                         return False
             
-            # Create fixture record
+            # For completed matches, create both Fixture AND Match records
+            if status in ["FT", "AET", "PEN"]:  # Finished match with scores
+                # Extract scores from goals or score data
+                goals = fixture_data.get("goals", {})
+                score_data = fixture_data.get("score", {})
+                
+                home_score = goals.get("home") or score_data.get("fulltime", {}).get("home")
+                away_score = goals.get("away") or score_data.get("fulltime", {}).get("away")
+                
+                if home_score is not None and away_score is not None:
+                    # Create Match record for ELO calculation
+                    from db import Match
+                    
+                    # Check if match already exists
+                    existing_match = Match.query.filter_by(
+                        date=fixture_date.date(),
+                        home_team_id=home_team.id,
+                        away_team_id=away_team.id
+                    ).first()
+                    
+                    if not existing_match:
+                        match = Match(
+                            date=fixture_date.date(),
+                            home_team_id=home_team.id,
+                            away_team_id=away_team.id,
+                            home_score=int(home_score),
+                            away_score=int(away_score)
+                        )
+                        db.session.add(match)
+                        print(f"✅ Created Match: {home_team_name} {home_score}-{away_score} {away_team_name}")
+            
+            # Create fixture record (for all matches, completed or not)
             fixture = Fixture(
                 api_fixture_id=api_fixture_id,
                 date=fixture_date,

@@ -6,6 +6,8 @@ from db import db, Team, Match, EloRating
 from elo_utils import update_elo, get_match_result
 import numpy as np
 import re
+import json
+import os
 
 # League code to league name mapping
 LEAGUE_MAPPING = {
@@ -96,6 +98,22 @@ def fetch_csv(url):
 
 import unicodedata
 
+def load_manual_team_mappings(path="manual_team_mappings.json"):
+    """Load manual team mappings for teams that can't be found via search"""
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                mappings = json.load(f)
+                # Filter out metadata keys
+                return {k: v for k, v in mappings.items() if not k.startswith("_")}
+        return {}
+    except Exception as e:
+        print(f"Warning: could not load manual mapping file: {e}")
+        return {}
+
+# Load manual mappings at module level
+manual_team_mappings = load_manual_team_mappings()
+
 def normalize_team_name(name):
     if not name:
         return ""
@@ -108,6 +126,17 @@ def get_or_create_team(name, league="Unknown"):
     if not name or str(name).lower() == 'nan':
         print(f"Skipping team with invalid name: {name}")
         return None
+    
+    original_name = name
+    
+    # Check manual mappings first
+    if name in manual_team_mappings:
+        mapped = manual_team_mappings[name]
+        name = mapped["api_name"]
+        if "league" in mapped and league == "Unknown":
+            league = mapped["league"]
+        print(f"✅ Using manual mapping: {original_name} → {name} (League: {league})")
+    
     norm_name = normalize_team_name(name)
     team = Team.query.filter_by(name=norm_name).first()
     if not team:
@@ -122,6 +151,7 @@ def get_or_create_team(name, league="Unknown"):
             team.league = league
             db.session.commit()
             print(f"Updated {norm_name}: {old_league} -> {league}")
+    
     return team
 
 

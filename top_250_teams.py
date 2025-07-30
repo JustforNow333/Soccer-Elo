@@ -294,6 +294,35 @@ class TeamMapper:
                 print(f"✅ Loaded {len(self.team_mapping)} team mappings from file")
             except Exception as e:
                 print(f"⚠️  Could not load team mappings: {e}")
+                        
+        # Also load manual mappings and integrate them
+        self._load_manual_mappings()
+    
+    def _load_manual_mappings(self):
+        """Load manual team mappings and integrate them"""
+        manual_file = "manual_team_mappings.json"
+        if os.path.exists(manual_file):
+            try:
+                with open(manual_file, 'r', encoding='utf-8') as f:
+                    manual_mappings = json.load(f)
+                    
+                manual_count = 0
+                for name, mapping in manual_mappings.items():
+                    if not name.startswith("_"):  # Skip metadata keys
+                        # Only add if we don't already have this team mapped
+                        if name not in self.team_mapping:
+                            self.team_mapping[name] = TeamInfo(
+                                name=mapping["api_name"],
+                                api_id=mapping["api_id"],
+                                league=mapping.get("league", "Unknown"),
+                                country=mapping.get("country", "Unknown")
+                            )
+                            manual_count += 1
+                
+                if manual_count > 0:
+                    print(f"✅ Integrated {manual_count} manual team mappings")
+            except Exception as e:
+                print(f"⚠️  Could not load manual mappings: {e}")
     
     def save_mapping(self):
         """Save current team mappings to file"""
