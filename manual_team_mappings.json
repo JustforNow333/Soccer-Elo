@@ -1,0 +1,215 @@
+{
+  "_comment": "Manual mappings for teams that can't be found via search",
+  "_usage": "Format: 'Our Team Name': {'api_id': 123, 'api_name': 'API Team Name', 'league': 'League Name', 'country': 'Country'}",
+  "_note": "These are high-confidence mappings based on Football API documentation patterns",
+  
+  "Valencia CF": {
+    "api_id": 532,
+    "api_name": "Valencia",
+    "league": "La Liga",
+    "country": "Spain"
+  },
+  
+  "Al-Ittihad Club": {
+    "api_id": 2866,
+    "api_name": "Al-Ittihad",
+    "league": "Saudi Pro League", 
+    "country": "Saudi Arabia"
+  },
+  
+  "CR Vasco da Gama": {
+    "api_id": 129,
+    "api_name": "Vasco da Gama",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "Grêmio": {
+    "api_id": 130,
+    "api_name": "Gremio",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "Athletic Club": {
+    "api_id": 531,
+    "api_name": "Athletic Bilbao",
+    "league": "La Liga",
+    "country": "Spain"
+  },
+  
+  "Cádiz CF": {
+    "api_id": 546,
+    "api_name": "Cadiz",
+    "league": "La Liga",
+    "country": "Spain"
+  },
+  
+  "Everton FC": {
+    "api_id": 45,
+    "api_name": "Everton",
+    "league": "Premier League",
+    "country": "England"
+  },
+  
+  "Al-Ahli": {
+    "api_id": 2867,
+    "api_name": "Al-Ahli Saudi",
+    "league": "Saudi Pro League",
+    "country": "Saudi Arabia"
+  },
+  
+  "Al-Nassr": {
+    "api_id": 2864,
+    "api_name": "Al Nassr",
+    "league": "Saudi Pro League",
+    "country": "Saudi Arabia"
+  },
+  
+  "Al-Hilal": {
+    "api_id": 2862,
+    "api_name": "Al-Hilal",
+    "league": "Saudi Pro League",
+    "country": "Saudi Arabia"
+  },
+  
+  "Fenerbahçe": {
+    "api_id": 610,
+    "api_name": "Fenerbahce",
+    "league": "Super Lig",
+    "country": "Turkey"
+  },
+  
+  "Beşiktaş": {
+    "api_id": 609,
+    "api_name": "Besiktas",
+    "league": "Super Lig",
+    "country": "Turkey"
+  },
+  
+  "São Paulo FC": {
+    "api_id": 126,
+    "api_name": "Sao Paulo",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "SE Palmeiras": {
+    "api_id": 127,
+    "api_name": "Palmeiras",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "Santos FC": {
+    "api_id": 135,
+    "api_name": "Santos",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "Corinthians": {
+    "api_id": 131,
+    "api_name": "Corinthians",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "Flamengo": {
+    "api_id": 123,
+    "api_name": "Flamengo",
+    "league": "Serie A",
+    "country": "Brazil"
+  },
+  
+  "Club América": {
+    "api_id": 2283,
+    "api_name": "Club America",
+    "league": "Liga MX",
+    "country": "Mexico"
+  },
+  
+  "Chivas Guadalajara": {
+    "api_id": 2284,
+    "api_name": "Guadalajara",
+    "league": "Liga MX",
+    "country": "Mexico"
+  },
+  
+  "Inter Miami": {
+    "api_id": 1599,
+    "api_name": "Inter Miami CF",
+    "league": "MLS",
+    "country": "USA"
+  },
+  
+  "LAFC": {
+    "api_id": 1613,
+    "api_name": "Los Angeles FC",
+    "league": "MLS",
+    "country": "USA"
+  },
+  
+  "LA Galaxy": {
+    "api_id": 1593,
+    "api_name": "LA Galaxy",
+    "league": "MLS",
+    "country": "USA"
+  },
+  
+  "CF Montréal": {
+    "api_id": 1601,
+    "api_name": "Montreal",
+    "league": "MLS",
+    "country": "Canada"
+  },
+  
+  "Sporting CP": {
+    "api_id": 228,
+    "api_name": "Sporting CP",
+    "league": "Primeira Liga",
+    "country": "Portugal"
+  },
+  
+  "SL Benfica": {
+    "api_id": 211,
+    "api_name": "Benfica",
+    "league": "Primeira Liga",
+    "country": "Portugal"
+  },
+  
+  "FC Porto": {
+    "api_id": 212,
+    "api_name": "Porto",
+    "league": "Primeira Liga",
+    "country": "Portugal"
+  },
+  
+  "PSV Eindhoven": {
+    "api_id": 194,
+    "api_name": "PSV",
+    "league": "Eredivisie",
+    "country": "Netherlands"
+  },
+  
+  "Feyenoord": {
+    "api_id": 192,
+    "api_name": "Feyenoord",
+    "league": "Eredivisie",
+    "country": "Netherlands"
+  },
+  
+  "Al-Ahly": {
+    "api_id": 1030,
+    "api_name": "Al Ahly",
+    "league": "Egyptian Premier League",
+    "country": "Egypt"
+  },
+  
+  "Zamalek SC": {
+    "api_id": 1031,
+    "api_name": "Zamalek",
+    "league": "Egyptian Premier League",
+    "country": "Egypt"
+  }
+}

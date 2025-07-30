@@ -1250,64 +1250,172 @@ class APIFootballImporter:
     
     def find_team_by_name(self, team_name: str) -> Optional[dict]:
         """
-        Find a team by name using the /teams?search= endpoint for more accurate results.
+        Find a team by name using the /teams?search= endpoint with multiple name variations.
         """
         print(f"🔍 Searching for team: {team_name}")
         
         # Check if we have enough requests
-        if self.requests_made >= self.max_requests_per_day - 5:
+        if self.requests_made >= self.max_requests_per_day - 10:  # Need more buffer for variations
             print(f"⚠️  Stopping search - approaching request limit")
             return None
         
-        try:
-            # Use the search endpoint for more accurate results
-            url = f"{self.base_url}/teams"
-            params = {
-                'search': team_name
-            }
-            
-            response = requests.get(url, headers=self.headers, params=params)
-            self._increment_request_count()
-            self._log_request(f"GET {url}?search={team_name}", response.status_code)
-            
-            if response.status_code == 200:
-                data = response.json()
-                teams = data.get('response', [])
+        # Get name variations to try
+        search_variations = self._get_team_name_variations(team_name)
+        
+        for i, search_term in enumerate(search_variations):
+            if i > 0:  # Don't print for first attempt (original name)
+                print(f"   Trying variation: {search_term}")
                 
-                if not teams:
-                    print(f"❌ No teams found for search: {team_name}")
-                    return None
+            try:
+                # Use the search endpoint for more accurate results
+                url = f"{self.base_url}/teams"
+                params = {'search': search_term}
                 
-                # Find the best match
-                best_match = None
-                best_score = 0
+                response = requests.get(url, headers=self.headers, params=params)
+                self._increment_request_count()
+                self._log_request(f"GET {url}?search={search_term}", response.status_code)
                 
-                for team_data in teams:
-                    team = team_data.get('team', {})
-                    team_api_name = team.get('name', '').lower()
-                    search_name = team_name.lower()
+                if response.status_code == 200:
+                    data = response.json()
+                    teams = data.get('response', [])
                     
-                    # Calculate match score
-                    score = self._calculate_match_score(search_name, team_api_name)
+                    if teams:
+                        # Find the best match
+                        best_match = None
+                        best_score = 0
+                        
+                        for team_data in teams:
+                            team = team_data.get('team', {})
+                            team_api_name = team.get('name', '').lower()
+                            search_name = search_term.lower()
+                            
+                            # Calculate match score
+                            score = self._calculate_match_score(search_name, team_api_name)
+                            
+                            if score > best_score:
+                                best_score = score
+                                best_match = team
+                        
+                        if best_match and best_score > 0.6:  # Lower threshold for variations
+                            print(f"✅ Found match: {best_match['name']} (ID: {best_match['id']}) - Score: {best_score:.2f}")
+                            return best_match
+                
+                elif response.status_code != 200:
+                    print(f"❌ API error searching for {search_term}: {response.status_code}")
                     
-                    if score > best_score:
-                        best_score = score
-                        best_match = team
-                
-                if best_match and best_score > 0.7:  # Minimum threshold
-                    print(f"✅ Found match: {best_match['name']} (ID: {best_match['id']}) - Score: {best_score:.2f}")
-                    return best_match
-                else:
-                    print(f"❌ No good match found for: {team_name} (best score: {best_score:.2f})")
-                    return None
+                # Small delay between variations
+                time.sleep(0.2)
+                    
+            except Exception as e:
+                print(f"❌ Error searching for variation {search_term}: {e}")
+                continue
+        
+        print(f"❌ No matches found for {team_name} with any variation")
+        return None
+    
+    def _get_team_name_variations(self, team_name: str) -> List[str]:
+        """Get variations of team names to try for better matching"""
+        variations = [team_name]  # Start with original
+        
+        # Predefined variations for known problematic teams
+        team_variations = {
+            # Spanish teams
+            "Valencia CF": ["Valencia", "Valencia FC"],
+            "Cádiz CF": ["Cadiz", "Cádiz", "CF Cadiz"],
+            "Athletic Club": ["Athletic Bilbao", "Athletic Club Bilbao"],
+            "Real Betis": ["Real Betis Balompie"],
             
-            else:
-                print(f"❌ API error searching for {team_name}: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Error searching for team {team_name}: {e}")
-            return None
+            # Saudi/Middle East teams  
+            "Al-Ittihad Club": ["Al Ittihad", "Al-Ittihad", "Ittihad FC", "Al-Ittihad Saudi"],
+            "Al-Ahli": ["Al Ahli", "Al-Ahli Saudi", "Al Ahli Jeddah"],
+            "Al-Nassr": ["Al Nassr", "Al-Nassr FC"],
+            "Al-Hilal": ["Al Hilal", "Al-Hilal FC"],
+            
+            # English teams
+            "Everton FC": ["Everton"],
+            "Leicester City": ["Leicester City FC"],
+            "West Ham United": ["West Ham", "West Ham United FC"],
+            "Newcastle United": ["Newcastle", "Newcastle United FC"],
+            
+            # Brazilian teams
+            "CR Vasco da Gama": ["Vasco da Gama", "Vasco", "CR Vasco"],
+            "Grêmio": ["Gremio", "Grêmio FBPA", "Gremio Porto Alegre"],
+            "SE Palmeiras": ["Palmeiras"],
+            "São Paulo FC": ["São Paulo", "Sao Paulo"],
+            "Santos FC": ["Santos"],
+            "Corinthians": ["Sport Club Corinthians Paulista"],
+            
+            # Mexican teams
+            "Club América": ["América", "Club America"],
+            "Chivas Guadalajara": ["Guadalajara", "CD Guadalajara"],
+            "Cruz Azul": ["Cruz Azul FC"],
+            "Pumas UNAM": ["Pumas", "UNAM"],
+            "Tigres UANL": ["Tigres"],
+            "Monterrey": ["CF Monterrey"],
+            
+            # MLS teams
+            "Inter Miami": ["Inter Miami CF"],
+            "LAFC": ["Los Angeles FC"],
+            "LA Galaxy": ["Los Angeles Galaxy"],
+            "D.C. United": ["DC United"],
+            "CF Montréal": ["Montreal", "CF Montreal"],
+            "Seattle Sounders FC": ["Seattle Sounders"],
+            "New York City FC": ["New York City", "NYCFC"],
+            
+            # Turkish teams
+            "Fenerbahçe": ["Fenerbahce", "Fenerbahçe SK"],
+            "Beşiktaş": ["Besiktas", "Beşiktaş JK"],
+            "Galatasaray": ["Galatasaray SK"],
+            
+            # Asian teams
+            "Persib Bandung": ["Persib"],
+            "Persija Jakarta": ["Persija"],
+            "Kashima Antlers": ["Kashima"],
+            "Jeonbuk Hyundai Motors": ["Jeonbuk Motors", "Jeonbuk FC"],
+            "Ulsan HD FC": ["Ulsan Hyundai", "Ulsan HD"],
+            "FC Seoul": ["Seoul FC"],
+            "Suwon Samsung Bluewings": ["Suwon Bluewings", "Suwon Samsung"],
+            "Pohang Steelers": ["Pohang"],
+            "Guangzhou FC": ["Guangzhou", "Guangzhou City"],
+            "Shanghai Port": ["Shanghai SIPG", "Shanghai Harbour"],
+            "Beijing Guoan": ["Beijing FC"],
+            "Shandong Taishan": ["Shandong Luneng"],
+            
+            # African teams
+            "Simba SC": ["Simba", "Simba Sports Club"],
+            "Al-Ahly": ["Al Ahly", "Al-Ahly SC"],
+            "Zamalek SC": ["Zamalek"],
+            
+            # Portuguese teams
+            "Sporting CP": ["Sporting", "Sporting Lisbon", "Sporting Portugal"],
+            "SL Benfica": ["Benfica"],
+            "FC Porto": ["Porto"],
+            "SC Braga": ["Braga"],
+        }
+        
+        if team_name in team_variations:
+            variations.extend(team_variations[team_name])
+        
+        # Generic variations
+        name_lower = team_name.lower()
+        
+        # Remove common suffixes/prefixes for additional attempts
+        if " fc" in name_lower and "FC" not in variations:
+            variations.append(team_name.replace(" FC", "").replace(" fc", ""))
+        if " cf" in name_lower:
+            variations.append(team_name.replace(" CF", "").replace(" cf", ""))
+        if " sc" in name_lower:
+            variations.append(team_name.replace(" SC", "").replace(" sc", ""))
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_variations = []
+        for var in variations:
+            if var not in seen:
+                seen.add(var)
+                unique_variations.append(var)
+        
+        return unique_variations[:5]  # Limit to 5 variations to conserve API requests
     
     def _calculate_match_score(self, search_name: str, api_name: str) -> float:
         """Calculate similarity score between team names"""
