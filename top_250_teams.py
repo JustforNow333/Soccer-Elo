@@ -247,7 +247,27 @@ TOP_250_TEAMS = [
     "Torino",
     "Bologna",
     "Sampdoria",
-    "Genoa"
+    "Genoa",
+    "Hellas Verona",
+    "Udinese",
+    "Sassuolo",
+    "Cagliari",
+    "Empoli",
+    "Lecce",
+    "Frosinone",
+    "Salernitana",
+    "Real Valladolid",
+    "Getafe",
+    "Rayo Vallecano",
+    "Almería",
+    "Elche",
+    "Girona",
+    "Osasuna",
+    "Las Palmas",
+    "Deportivo Alavés",
+    "RCD Espanyol",
+    "Real Oviedo",
+    "Real Zaragoza"
 ]
 
 class TeamMapper:

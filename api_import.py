@@ -285,10 +285,18 @@ class APIFootballImporter:
                 
                 return data
             elif response.status_code == 429:
-                # Rate limit exceeded - implement exponential backoff
+                # Rate limit exceeded - use Retry-After header if available
                 if retry_count < 3:
-                    wait_time = (2 ** retry_count) * 60  # 1min, 2min, 4min
-                    print(f"⚠️  Rate limit exceeded (429), waiting {wait_time} seconds before retry {retry_count + 1}/3...")
+                    # Check for Retry-After header first
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        wait_time = int(retry_after)
+                        print(f"⚠️  Rate limit exceeded (429), Retry-After: {wait_time}s, retry {retry_count + 1}/3...")
+                    else:
+                        # Fallback to exponential backoff
+                        wait_time = (2 ** retry_count) * 60  # 1min, 2min, 4min
+                        print(f"⚠️  Rate limit exceeded (429), waiting {wait_time}s before retry {retry_count + 1}/3...")
+                    
                     time.sleep(wait_time)
                     return self._make_request(endpoint, params, retry_count + 1)
                 else:
@@ -675,6 +683,55 @@ class APIFootballImporter:
         except Exception as e:
             print(f"❌ Failed to create match: {e}")
             return None
+    
+    def get_team_fixtures_completed(self, team_id: int, season: int, league_id: int = None) -> List[dict]:
+        """Fetch completed fixtures only for a specific team and season"""
+        params = {
+            "team": str(team_id),
+            "season": str(season)
+            # Note: API may not support multiple status filtering, so we'll filter in code
+        }
+        
+        if league_id:
+            params["league"] = str(league_id)
+        
+        data = self._make_request("fixtures", params)
+        if not data:
+            return []
+        
+        fixtures = []
+        for fixture_data in data.get("response", []):
+            fixture = fixture_data.get("fixture", {})
+            status = fixture.get("status", {}).get("short", "")
+            
+            # Double-check status is completed
+            if status not in ["FT", "AET", "PEN"]:
+                continue
+                
+            teams = fixture_data.get("teams", {})
+            league = fixture_data.get("league", {})
+            goals = fixture_data.get("goals", {})
+            
+            fixture_id = fixture.get("id")
+            if fixture_id in self.cached_fixtures:
+                self.stats["skipped_items"] += 1
+                continue
+            
+            fixtures.append({
+                "api_fixture_id": fixture_id,  
+                "date": fixture.get("date"),
+                "status": status,
+                "venue": fixture.get("venue", {}).get("name"),
+                "home_team": teams.get("home", {}),
+                "away_team": teams.get("away", {}),
+                "league": league,
+                "goals": goals,
+                "score": fixture_data.get("score", {})
+            })
+            
+            self.cached_fixtures.add(fixture_id)
+        
+        return fixtures
     
     def process_fixture(self, fixture_data: dict, league_name: str) -> bool:
         """Process a single fixture and create database records"""
@@ -1193,74 +1250,94 @@ class APIFootballImporter:
     
     def find_team_by_name(self, team_name: str) -> Optional[dict]:
         """
-        Find a team by name using fuzzy matching across all leagues.
-        This method will search through major leagues to find the team.
+        Find a team by name using the /teams?search= endpoint for more accurate results.
         """
         print(f"🔍 Searching for team: {team_name}")
         
-        # Major leagues to search through
-        search_leagues = [
-            39,   # Premier League
-            140,  # La Liga
-            78,   # Bundesliga
-            135,  # Serie A
-            61,   # Ligue 1
-            94,   # Primeira Liga
-            88,   # Eredivisie
-            203,  # Turkish Super Lig
-            71,   # Brasileiro Serie A
-            253,  # MLS
-            2,    # UEFA Champions League
-            3,    # UEFA Europa League
-            4,    # UEFA Europa Conference League
-            128,  # Argentine Primera División
-            13,   # CONMEBOL Copa Libertadores
-            81,   # DFB Pokal
-            137,  # Coppa Italia
-            143,  # Copa del Rey
-            144,  # Copa da Liga
-            239,  # Egyptian Premier League
-            274,  # Saudi Pro League
-            307,  # UAE Pro League
-            218,  # CAF Champions League
-            219,  # CAF Confederation Cup
-            292,  # J1 League
-            299,  # K League 1
-            169,  # Greek Super League
-            583,  # Polish Ekstraklasa
-            345,  # Russian Premier League
-            564,  # Ukrainian Premier League
-        ]
+        # Check if we have enough requests
+        if self.requests_made >= self.max_requests_per_day - 5:
+            print(f"⚠️  Stopping search - approaching request limit")
+            return None
         
-        for league_id in search_leagues:
-            # Check if we have enough requests
-            if self.requests_made >= self.max_requests_per_day - 10:
-                print(f"⚠️  Stopping search - approaching request limit")
-                break
+        try:
+            # Use the search endpoint for more accurate results
+            url = f"{self.base_url}/teams"
+            params = {
+                'search': team_name
+            }
             
-            try:
-                teams = self.get_league_teams(league_id, self.current_season)
+            response = requests.get(url, headers=self.headers, params=params)
+            self._increment_request_count()
+            self._log_request(f"GET {url}?search={team_name}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                teams = data.get('response', [])
                 
-                for team in teams:
+                if not teams:
+                    print(f"❌ No teams found for search: {team_name}")
+                    return None
+                
+                # Find the best match
+                best_match = None
+                best_score = 0
+                
+                for team_data in teams:
+                    team = team_data.get('team', {})
                     team_api_name = team.get('name', '').lower()
                     search_name = team_name.lower()
                     
-                    # Direct match
-                    if search_name == team_api_name:
-                        print(f"✅ Found exact match: {team['name']} (ID: {team['id']})")
-                        return team
+                    # Calculate match score
+                    score = self._calculate_match_score(search_name, team_api_name)
                     
-                    # Fuzzy matching for common variations
-                    if self._is_team_name_match(search_name, team_api_name):
-                        print(f"✅ Found fuzzy match: {team['name']} (ID: {team['id']}) for search: {team_name}")
-                        return team
-                        
-            except Exception as e:
-                print(f"❌ Error searching league {league_id}: {e}")
-                continue
+                    if score > best_score:
+                        best_score = score
+                        best_match = team
+                
+                if best_match and best_score > 0.7:  # Minimum threshold
+                    print(f"✅ Found match: {best_match['name']} (ID: {best_match['id']}) - Score: {best_score:.2f}")
+                    return best_match
+                else:
+                    print(f"❌ No good match found for: {team_name} (best score: {best_score:.2f})")
+                    return None
+            
+            else:
+                print(f"❌ API error searching for {team_name}: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error searching for team {team_name}: {e}")
+            return None
+    
+    def _calculate_match_score(self, search_name: str, api_name: str) -> float:
+        """Calculate similarity score between team names"""
+        # Exact match
+        if search_name == api_name:
+            return 1.0
         
-        print(f"❌ Could not find team: {team_name}")
-        return None
+        # Clean both names
+        search_clean = self._clean_team_name(search_name)
+        api_clean = self._clean_team_name(api_name)
+        
+        # Exact match after cleaning
+        if search_clean == api_clean:
+            return 0.95
+        
+        # Check if one contains the other
+        if search_clean in api_clean or api_clean in search_clean:
+            return 0.85
+        
+        # Check word overlap
+        search_words = set(search_clean.split())
+        api_words = set(api_clean.split())
+        
+        if search_words and api_words:
+            overlap = len(search_words.intersection(api_words))
+            union = len(search_words.union(api_words))
+            jaccard_score = overlap / union if union > 0 else 0
+            return jaccard_score * 0.8  # Scale down
+        
+        return 0.0
     
     def _is_team_name_match(self, search_name: str, api_name: str) -> bool:
         """Check if team names match using fuzzy logic"""
@@ -1326,6 +1403,59 @@ class APIFootballImporter:
         words = [word for word in words if word not in removals and len(word) > 1]
         
         return ' '.join(words).strip()
+    
+    def _get_current_league_for_team(self, team_id: int) -> str:
+        """Get the current league for a team using the /leagues endpoint"""
+        if self.requests_made >= self.max_requests_per_day - 3:
+            print(f"⚠️  Skipping league lookup - approaching request limit")
+            return "Unknown"
+        
+        try:
+            url = f"{self.base_url}/leagues"
+            params = {
+                'team': team_id,
+                'season': self.current_season
+            }
+            
+            response = requests.get(url, headers=self.headers, params=params)
+            self._increment_request_count()
+            self._log_request(f"GET {url}?team={team_id}&season={self.current_season}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                leagues = data.get('response', [])
+                
+                if leagues:
+                    # Find the most relevant league (prefer domestic leagues over cups)
+                    domestic_leagues = []
+                    cup_competitions = []
+                    
+                    for league_data in leagues:
+                        league = league_data.get('league', {})
+                        league_type = league.get('type', '').lower()
+                        league_name = league.get('name', '')
+                        
+                        if 'cup' in league_type or 'trophy' in league_type:
+                            cup_competitions.append(league_name)
+                        else:
+                            domestic_leagues.append(league_name)
+                    
+                    # Prefer domestic league over cups
+                    if domestic_leagues:
+                        return domestic_leagues[0]
+                    elif cup_competitions:
+                        return cup_competitions[0]
+                    else:
+                        return leagues[0].get('league', {}).get('name', 'Unknown')
+                else:
+                    return "Unknown"
+            else:
+                print(f"❌ Error getting league for team {team_id}: {response.status_code}")
+                return "Unknown"
+                
+        except Exception as e:
+            print(f"❌ Error getting league for team {team_id}: {e}")
+            return "Unknown"
     
     def map_top_250_teams_optimized(self) -> None:
         """
@@ -1620,10 +1750,13 @@ class APIFootballImporter:
             team_info = self.find_team_by_name(team_name)
             
             if team_info:
+                # Get current league for this team
+                current_league = self._get_current_league_for_team(team_info['id'])
+                
                 team_mapper.add_team_mapping(
                     name=team_name,
                     api_id=team_info['id'],
-                    league=team_info.get('league', 'Unknown'),
+                    league=current_league,
                     country=team_info.get('country', 'Unknown')
                 )
                 mapped_count += 1
@@ -1718,8 +1851,8 @@ class APIFootballImporter:
                         print(f"⚠️  Stopping team processing - approaching request limit")
                         break
                     
-                    # Get fixtures for this team in this season
-                    fixtures = self.get_team_fixtures(team_id, season)
+                    # Get completed fixtures for this team in this season
+                    fixtures = self.get_team_fixtures_completed(team_id, season)
                     
                     # Process fixtures
                     for fixture_data in fixtures:
@@ -1809,8 +1942,8 @@ class APIFootballImporter:
                         print(f"⚠️  Stopping team processing - approaching request limit")
                         break
                     
-                    # Get fixtures for this team in this season
-                    fixtures = self.get_team_fixtures(team_id, season)
+                    # Get completed fixtures for this team in this season
+                    fixtures = self.get_team_fixtures_completed(team_id, season)
                     
                     # Process fixtures
                     for fixture_data in fixtures:
