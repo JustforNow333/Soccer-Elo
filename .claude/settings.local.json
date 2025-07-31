@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:www.api-football.com)",
       "Bash(grep:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }

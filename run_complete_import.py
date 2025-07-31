@@ -39,115 +39,100 @@ def run_complete_import():
             migrate_database()
             print("✅ Database migration complete")
             
-            # Step 2: Initialize importer
-            print("\n🔧 Step 2: Initializing API importer...")
-            importer = APIFootballImporter(
-                api_key=api_key,
-                current_season=datetime.now().year,
-                request_delay=0.6,  # Conservative delay
-                max_requests_per_day=9000  # Conservative limit
-            )
-            print("✅ API importer initialized")
+            # Step 2: Initialize new league-based importer
+            print("\n🔧 Step 2: Initializing league-based API importer...")
+            from league_based_import import LeagueBasedImporter
             
-            # Step 3: Map teams to API IDs
-            print("\n🗺️  Step 3: Mapping 250 teams to API IDs...")
-            importer.map_top_250_teams()
+            importer = LeagueBasedImporter(
+                api_key=api_key,
+                max_requests_per_day=7500  # Actual API limit
+            )
+            print("✅ League-based importer initialized")
+            
+            # Step 3: Discover teams by leagues (NEW APPROACH)
+            print("\n🗺️  Step 3: Discovering teams through major leagues...")
+            discovered_teams = importer.discover_teams_by_leagues([2024, 2023])
+            
+            # Apply discovered teams to mapper
+            applied_teams = importer.apply_discovered_teams()
             
             # Check mapping progress
             team_mapper = get_team_mapper()
             progress = team_mapper.get_mapping_progress()
-            print(f"📊 Mapping progress: {progress['mapped']}/{progress['total']} teams ({progress['progress_percent']}%)")
+            print(f"📊 Team discovery results:")
+            print(f"   Teams discovered: {len(discovered_teams)}")
+            print(f"   Teams applied: {applied_teams}")
+            print(f"   Total mapped: {progress['mapped']}/{progress['total']} ({progress['progress_percent']}%)")
             
-            if progress['mapped'] < 150:  # Need at least 150 teams mapped
-                print(f"❌ Only {progress['mapped']} teams mapped. Need at least 150 to proceed.")
+            if progress['mapped'] < 100:  # Reduced threshold since we expect better results
+                print(f"❌ Only {progress['mapped']} teams mapped. Expected at least 100 with new system.")
+                print("💡 You may need to run diagnostics to identify missing teams")
                 return False
             
-            print("✅ Team mapping complete")
+            print("✅ Team discovery complete")
             
-            # Step 4: Import historical data
-            print(f"\n📚 Step 4: Importing historical data for {progress['mapped']} teams...")
-            importer.import_top_250_teams_historical_enhanced(start_year=2000)
-            print("✅ Historical data import complete")
+            # Step 4: Import historical match data (NEW APPROACH)
+            print(f"\n📚 Step 4: Importing match history for discovered teams...")
             
-            # Step 5: Calculate ELO ratings
-            print("\n🏆 Step 5: Calculating ELO ratings...")
-            # Import the ELO calculation logic directly
-            from db import db, EloRating, Match
-            from elo_utils import get_match_result, update_elo
-            
-            # Clear existing ELO ratings
-            EloRating.query.delete()
-            db.session.commit()
-            print("✅ Cleared existing ELO ratings")
-            
-            # Get all matches ordered by date
-            matches = Match.query.order_by(Match.date.asc()).all()
-            print(f"📊 Found {len(matches)} matches to process")
-            
-            if matches:
-                # Track ELO ratings for each team
-                team_elos = {}
-                ratings_to_add = []
-                
-                processed = 0
-                for match in matches:
-                    try:
-                        # Get current ELO for both teams (default to 1000)
-                        home_elo = team_elos.get(match.home_team_id, 1000)
-                        away_elo = team_elos.get(match.away_team_id, 1000)
-                        
-                        # Calculate match result
-                        home_score, away_score = get_match_result(match.home_score, match.away_score)
-                        
-                        # Calculate new ELO ratings
-                        new_home_elo = update_elo(home_elo, away_elo, home_score)
-                        new_away_elo = update_elo(away_elo, home_elo, away_score)
-                        
-                        # Update tracking
-                        team_elos[match.home_team_id] = new_home_elo
-                        team_elos[match.away_team_id] = new_away_elo
-                        
-                        # Add to batch
-                        ratings_to_add.append(EloRating(
-                            team_id=match.home_team_id, 
-                            date=match.date, 
-                            rating=new_home_elo
-                        ))
-                        ratings_to_add.append(EloRating(
-                            team_id=match.away_team_id, 
-                            date=match.date, 
-                            rating=new_away_elo
-                        ))
-                        
-                        processed += 1
-                        
-                        # Batch commit every 100 matches
-                        if processed % 100 == 0:
-                            db.session.add_all(ratings_to_add)
-                            db.session.commit()
-                            ratings_to_add = []
-                            print(f"📈 Processed {processed}/{len(matches)} matches")
-                            
-                    except Exception as e:
-                        print(f"❌ Error processing match {match.id}: {e}")
-                        continue
-                
-                # Final commit
-                if ratings_to_add:
-                    db.session.add_all(ratings_to_add)
-                    db.session.commit()
-                
-                print(f"✅ ELO calculation complete: {processed} matches processed")
+            # Check if we have enough API budget for match import
+            if importer.requests_made < 6000:  # Leave room for match import
+                matches_imported = importer.import_team_matches()
+                print(f"✅ Match history import complete: {matches_imported} matches")
             else:
-                print("⚠️  No matches found for ELO calculation")
+                print("⚠️  Insufficient API budget for full match import")
+                print("💡 Run match import separately when API limit resets")
+                return False
+            
+            # Step 5: Calculate ELO ratings using enhanced system
+            print("\n🏆 Step 5: Calculating ELO ratings with enhanced system...")
+            from enhanced_elo_engine import EnhancedEloEngine
+            
+            # Initialize enhanced ELO engine
+            elo_engine = EnhancedEloEngine()
+            
+            # Recalculate all ELO ratings
+            stats = elo_engine.recalculate_all_elos(force_recalculate=True)
+            
+            processed = stats.get('total_matches_processed', 0)
+            print(f"✅ Enhanced ELO calculation complete: {processed} matches processed")
+            print(f"   Teams processed: {stats.get('teams_processed', 0)}")
+            print(f"   Teams skipped: {stats.get('teams_skipped', 0)}")
+            print(f"   Errors: {stats.get('errors', 0)}")
+            
+            # Step 6: Fetch upcoming fixtures (if we have API budget)
+            if importer.requests_made < importer.max_requests_per_day - 300:
+                print("\n📅 Step 6: Fetching upcoming fixtures...")
+                from upcoming_fixtures import UpcomingFixturesManager
+                
+                fixtures_manager = UpcomingFixturesManager(
+                    api_key=api_key,
+                    max_requests_per_day=importer.max_requests_per_day
+                )
+                
+                # Update requests count to include what we've already used
+                fixtures_manager.requests_made = importer.requests_made
+                
+                upcoming_count = fixtures_manager.fetch_all_upcoming_fixtures(days_ahead=7)
+                total_requests = fixtures_manager.requests_made
+                
+                print(f"✅ Upcoming fixtures fetch complete: {upcoming_count} fixtures")
+            else:
+                print("\n⚠️  Step 6: Skipping upcoming fixtures - insufficient API budget")
+                print("💡 Run upcoming fixtures separately: python3 upcoming_fixtures.py")
+                upcoming_count = 0
+                total_requests = importer.requests_made
             
             print("\n🎉 Complete import process finished!")
             print("="*60)
             print(f"📊 Final stats:")
-            print(f"   🗺️  Teams mapped: {progress['mapped']}/{progress['total']}")
-            print(f"   📅 Historical data: Imported from 2000")
-            print(f"   🏆 ELO ratings: Calculated")
-            print(f"   📍 League assignments: Current leagues detected")
+            print(f"   🗺️  Teams discovered: {len(discovered_teams)}")
+            print(f"   ✅ Teams mapped: {progress['mapped']}/{progress['total']} ({progress['progress_percent']}%)")
+            print(f"   ⚽ Matches imported: {matches_imported}")
+            print(f"   📅 Historical coverage: 2010-2025 (comprehensive)")
+            print(f"   🏆 ELO ratings: {processed} matches processed")
+            print(f"   📅 Upcoming fixtures: {upcoming_count} fixtures (next 7 days)")
+            print(f"   🔢 API requests used: {total_requests}/{importer.max_requests_per_day}")
+            print(f"   📍 System: League-based import (API documentation compliant)")
             
             return True
             

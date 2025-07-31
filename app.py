@@ -8,6 +8,7 @@ import requests
 from sqlalchemy import or_, and_
 from elo_utils import expected_result, update_elo, get_match_result
 from fixture_import import fetch_next_48_hours_fixtures
+from elo_triggers import trigger_elo_after_match_update
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -463,18 +464,17 @@ def create_match():
         db.session.add(match)
         db.session.flush()
         
-        # Fixed: Wrap Elo update in same transaction to prevent race condition
+        # Commit the match first
+        db.session.commit()
+        
+        # Trigger enhanced ELO recalculation
         try:
-            update_elo_result = update_elo_after_match(match.id)
-            if "error" in update_elo_result or not update_elo_result.get("success"):
-                db.session.rollback()
-                return jsonify(update_elo_result), 400
-            
-            db.session.commit()
+            trigger_elo_after_match_update(match)
             return jsonify({"id": match.id}), 201
         except Exception as elo_error:
-            db.session.rollback()
-            return jsonify({"error": f"Elo calculation failed: {str(elo_error)}"}), 400
+            print(f"⚠️  ELO recalculation failed for match {match.id}: {elo_error}")
+            # Don't rollback the match creation, just log the ELO error
+            return jsonify({"id": match.id, "warning": "Match created but ELO update failed"}), 201
             
     except Exception as e:
         db.session.rollback()
@@ -1529,6 +1529,125 @@ def reset_and_import():
         db.session.rollback()
         print(f"❌ Reset and import failed: {str(e)}", flush=True)
         return jsonify({"error": f"Reset failed: {str(e)}"}), 500
+
+@app.route('/api/teams/<int:team_id>/upcoming')
+def get_team_upcoming_fixtures(team_id):
+    """Get upcoming fixtures for a specific team"""
+    try:
+        # Get team
+        team = Team.query.get_or_404(team_id)
+        
+        # Get upcoming fixtures for this team (next 7 days)
+        upcoming_fixtures = Fixture.query.filter(
+            or_(Fixture.home_team_id == team_id, Fixture.away_team_id == team_id),
+            Fixture.date >= datetime.now(),
+            Fixture.status.in_(["NS", "TBD", "POST"])
+        ).order_by(Fixture.date.asc()).limit(10).all()
+        
+        fixtures_data = []
+        for fixture in upcoming_fixtures:
+            # Get ELO ratings for prediction
+            home_elo = 1000
+            away_elo = 1000
+            
+            if fixture.home_team:
+                latest_home_elo = EloRating.query.filter_by(
+                    team_id=fixture.home_team_id
+                ).order_by(EloRating.date.desc()).first()
+                if latest_home_elo:
+                    home_elo = latest_home_elo.rating
+            
+            if fixture.away_team:
+                latest_away_elo = EloRating.query.filter_by(
+                    team_id=fixture.away_team_id
+                ).order_by(EloRating.date.desc()).first()
+                if latest_away_elo:
+                    away_elo = latest_away_elo.rating
+            
+            # Calculate prediction
+            from elo_utils import expected_result
+            home_win_prob = expected_result(home_elo, away_elo)
+            away_win_prob = expected_result(away_elo, home_elo)
+            draw_prob = max(0, 1 - home_win_prob - away_win_prob)
+            
+            fixture_data = {
+                "id": fixture.id,
+                "date": fixture.date.isoformat(),
+                "home_team": {
+                    "id": fixture.home_team.id if fixture.home_team else None,
+                    "name": fixture.home_team.name if fixture.home_team else fixture.home_team_name,
+                    "elo": round(home_elo, 1)
+                },
+                "away_team": {
+                    "id": fixture.away_team.id if fixture.away_team else None,
+                    "name": fixture.away_team.name if fixture.away_team else fixture.away_team_name,
+                    "elo": round(away_elo, 1)
+                },
+                "league": fixture.league_name,
+                "venue": fixture.venue,
+                "status": fixture.status,
+                "prediction": {
+                    "home_win": round(home_win_prob * 100, 1),
+                    "draw": round(draw_prob * 100, 1),
+                    "away_win": round(away_win_prob * 100, 1)
+                },
+                "is_home": fixture.home_team_id == team_id
+            }
+            fixtures_data.append(fixture_data)
+        
+        return jsonify({
+            "upcoming_fixtures": fixtures_data,
+            "team": {
+                "id": team.id,
+                "name": team.name,
+                "league": team.league
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error fetching upcoming fixtures: {e}")
+        return jsonify({"error": "Failed to fetch upcoming fixtures"}), 500
+
+@app.route('/api/upcoming-fixtures/today')
+def get_today_fixtures():
+    """Get today's fixtures"""
+    try:
+        today = datetime.now().date()
+        tomorrow = today + timedelta(days=1)
+        
+        today_fixtures = Fixture.query.filter(
+            Fixture.date >= datetime.combine(today, datetime.min.time()),
+            Fixture.date < datetime.combine(tomorrow, datetime.min.time()),
+            Fixture.status.in_(["NS", "TBD", "POST", "LIVE", "HT"])
+        ).order_by(Fixture.date.asc()).all()
+        
+        fixtures_data = []
+        for fixture in today_fixtures:
+            fixture_data = {
+                "id": fixture.id,
+                "date": fixture.date.isoformat(),
+                "home_team": {
+                    "id": fixture.home_team.id if fixture.home_team else None,
+                    "name": fixture.home_team.name if fixture.home_team else fixture.home_team_name
+                },
+                "away_team": {
+                    "id": fixture.away_team.id if fixture.away_team else None,
+                    "name": fixture.away_team.name if fixture.away_team else fixture.away_team_name
+                },
+                "league": fixture.league_name,
+                "venue": fixture.venue,
+                "status": fixture.status
+            }
+            fixtures_data.append(fixture_data)
+        
+        return jsonify({
+            "today_fixtures": fixtures_data,
+            "count": len(fixtures_data)
+        })
+        
+    except Exception as e:
+        print(f"Error fetching today's fixtures: {e}")
+        return jsonify({"error": "Failed to fetch today's fixtures"}), 500
 
 if __name__ == "__main__":
     from apscheduler.schedulers.background import BackgroundScheduler

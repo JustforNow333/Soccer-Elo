@@ -28,6 +28,7 @@ from db import db, Team, Match, EloRating, Fixture
 from elo_utils import update_elo, get_match_result
 import unicodedata
 from top_250_teams import get_team_mapper, get_top_250_team_names
+from elo_triggers import trigger_elo_after_match_import, get_trigger_manager
 
 
 class APIFootballImporter:
@@ -1017,6 +1018,14 @@ class APIFootballImporter:
                 raise inner_e
             
             print(f"✅ Successfully committed: {teams_count} teams, {fixtures_count} fixtures, {matches_count} matches, {elo_count} Elo ratings")
+            
+            # Trigger ELO recalculation for imported matches
+            if self.matches_batch and matches_count > 0:
+                print(f"🔄 Triggering ELO recalculation for {matches_count} imported matches...")
+                try:
+                    trigger_elo_after_match_import(self.matches_batch.copy())
+                except Exception as elo_error:
+                    print(f"⚠️  ELO recalculation failed: {elo_error}")
             
             # Clear batches ONLY after successful commit
             self.teams_batch.clear()
