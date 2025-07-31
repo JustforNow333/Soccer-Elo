@@ -58,10 +58,21 @@ class SoccerEloSystemManager:
         print("• API requests used: ~6,000-7,000 (within daily limit)")
         print()
         
-        user_confirm = input("Continue with complete initialization? (y/N): ").lower()
-        if user_confirm != 'y':
-            print("🛑 Initialization cancelled by user")
-            return False
+        # Check if running in non-interactive mode
+        import sys
+        if not sys.stdin.isatty():
+            print("🤖 Running in non-interactive mode (background worker)")
+            print("🚀 Auto-proceeding with complete initialization...")
+            user_confirm = 'y'
+        else:
+            try:
+                user_confirm = input("Continue with complete initialization? (y/N): ").lower()
+                if user_confirm != 'y':
+                    print("🛑 Initialization cancelled by user")
+                    return False
+            except (KeyboardInterrupt, EOFError):
+                print("\n🛑 Initialization cancelled or no input available")
+                return False
         
         start_time = datetime.now()
         print(f"\n🕐 Starting complete initialization at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")

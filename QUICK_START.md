@@ -12,10 +12,21 @@ export API_FOOTBALL_KEY="your_api_key_here"
 
 Get your API key from: https://api-football.com/
 
-### Step 2: Start the System
+### Step 2: Choose Your Setup Method
 
+#### For Interactive Setup (Local Development)
 ```bash
 python3 start_system.py
+```
+
+#### For Background Worker (Render/Cloud Deployment)
+```bash
+python3 background_worker.py
+```
+
+#### For Initialization Only (No Daily Operations)
+```bash
+python3 initialize_only.py
 ```
 
 That's it! This single command will:
@@ -43,6 +54,29 @@ python3 system_status.py
 ```
 
 Shows complete system health, data counts, API usage, and scheduler status.
+
+## ☁️ Render.com Deployment
+
+### For Background Worker Setup:
+
+1. **Create Background Worker Service** in Render
+2. **Set Start Command**: `python3 background_worker.py`
+3. **Environment Variables**:
+   - `API_FOOTBALL_KEY` = your_api_key
+   - `DATABASE_URL` = your_database_url
+4. **Deploy** - The system will auto-initialize and run continuously
+
+### For Web Service + Worker Setup:
+
+1. **Web Service**:
+   - Start Command: `gunicorn app:app`
+   - For your Flask API
+
+2. **Background Worker**:
+   - Start Command: `python3 background_worker.py`
+   - For data operations
+
+**Note**: The `background_worker.py` script automatically detects non-interactive mode and starts without user prompts - perfect for Render deployment!
 
 ## 🔧 Advanced Options
 

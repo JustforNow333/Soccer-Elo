@@ -48,15 +48,22 @@ def main():
     print("📊 API usage: ~6,000 requests (within 7,500 daily limit)")
     print()
     
-    # Get user confirmation
-    try:
-        confirm = input("🚀 Start complete system setup? (y/N): ").strip().lower()
-        if confirm != 'y':
-            print("🛑 Setup cancelled")
+    # Check if running in non-interactive mode (like Render background worker)
+    import sys
+    if not sys.stdin.isatty():
+        print("🤖 Running in non-interactive mode (background worker)")
+        print("🚀 Auto-starting complete system setup...")
+        confirm = 'y'
+    else:
+        # Get user confirmation in interactive mode
+        try:
+            confirm = input("🚀 Start complete system setup? (y/N): ").strip().lower()
+            if confirm != 'y':
+                print("🛑 Setup cancelled")
+                return False
+        except (KeyboardInterrupt, EOFError):
+            print("\n🛑 Setup cancelled or no input available")
             return False
-    except KeyboardInterrupt:
-        print("\n🛑 Setup cancelled")
-        return False
     
     print("\n" + "="*50)
     print("🚀 STARTING COMPLETE SYSTEM SETUP...")
