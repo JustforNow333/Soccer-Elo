@@ -7,14 +7,14 @@ Automatic triggers that ensure ELO ratings are recalculated whenever match histo
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Dict, Any
 from functools import wraps
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from db import db, Team, Match, EloRating
-from enhanced_elo_engine import EnhancedEloEngine, trigger_elo_recalculation
+from enhanced_elo_engine import EnhancedEloEngine
 
 class EloTriggerManager:
     """
@@ -215,7 +215,7 @@ def schedule_daily_elo_maintenance():
         print(f"❌ Error during daily ELO maintenance: {e}")
         return False
 
-def verify_elo_consistency() -> Dict[str, any]:
+def verify_elo_consistency() -> Dict[str, Any]:
     """
     Verify ELO rating consistency and identify any issues
     """
@@ -269,7 +269,7 @@ def verify_elo_consistency() -> Dict[str, any]:
         print(f"❌ Error during consistency check: {e}")
         return issues
 
-def cleanup_elo_issues(issues: Dict[str, any]) -> bool:
+def cleanup_elo_issues(issues: Dict[str, Any]) -> bool:
     """
     Clean up identified ELO consistency issues
     """

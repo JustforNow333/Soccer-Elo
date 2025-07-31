@@ -8,7 +8,15 @@ import requests
 from sqlalchemy import or_, and_
 from elo_utils import expected_result, update_elo, get_match_result
 from fixture_import import fetch_next_48_hours_fixtures
-from elo_triggers import trigger_elo_after_match_update
+# Optional import for enhanced ELO system
+try:
+    from elo_triggers import trigger_elo_after_match_update
+    ELO_TRIGGERS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Enhanced ELO triggers not available: {e}")
+    ELO_TRIGGERS_AVAILABLE = False
+    def trigger_elo_after_match_update(match):
+        print(f"⚠️  ELO trigger not available - match {match.id} will not trigger ELO recalculation")
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": [
@@ -470,7 +478,10 @@ def create_match():
         # Trigger enhanced ELO recalculation
         try:
             trigger_elo_after_match_update(match)
-            return jsonify({"id": match.id}), 201
+            if ELO_TRIGGERS_AVAILABLE:
+                return jsonify({"id": match.id}), 201
+            else:
+                return jsonify({"id": match.id, "warning": "Match created but enhanced ELO system not available"}), 201
         except Exception as elo_error:
             print(f"⚠️  ELO recalculation failed for match {match.id}: {elo_error}")
             # Don't rollback the match creation, just log the ELO error
