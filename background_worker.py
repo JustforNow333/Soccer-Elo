@@ -38,7 +38,8 @@ def main():
         with app.app_context():
             from db import db, Team, Match
             
-            db.engine.execute("SELECT 1")
+            from sqlalchemy import text
+            db.session.execute(text("SELECT 1"))
             team_count = Team.query.count()
             match_count = Match.query.count()
             

@@ -47,7 +47,8 @@ def check_database_status():
             from db import db, Team, Match, EloRating, Fixture
             
             # Test connection
-            db.engine.execute("SELECT 1")
+            from sqlalchemy import text
+            db.session.execute(text("SELECT 1"))
             print("✅ Database connection: OK")
             
             # Count records

@@ -8,35 +8,46 @@ This is a soccer ELO rating system with both Flask backend and Next.js frontend.
 
 ## Key Commands
 
+### Complete System Setup (One-Command Solution)
+
+```bash
+# Quick start - complete system with automation (RECOMMENDED)
+python3 start_system.py              # Interactive setup for local development
+python3 background_worker.py         # Background worker for cloud deployment (Render)
+python3 initialize_and_run.py        # Full initialization + daily operations
+python3 initialize_only.py           # Initialization only (no daily operations)
+
+# Check complete system status
+python3 system_status.py
+```
+
 ### Backend Development & Deployment
 
 ```bash
-# Complete team import and setup (primary command)
+# Legacy complete import (still supported)
 python3 run_complete_import.py
 
-# League-based team discovery only (testing)
-python3 discover_teams.py
+# Individual data operations
+python3 discover_teams.py            # League-based team discovery only
+python3 upcoming_fixtures.py         # Daily upcoming fixtures update
+python3 match_results_updater.py     # Update match results from API
+python3 daily_fixtures_update.py     # Daily fixture refresh
+python3 daily_elo_maintenance.py     # ELO rating maintenance
 
-# Daily upcoming fixtures update
-python3 upcoming_fixtures.py
+# Automation & Scheduling
+python3 scheduler_manager.py --daemon    # Start all automated tasks
+python3 scheduler_manager.py --status    # Check scheduler status
+python3 scheduler_manager.py --stop      # Stop scheduler
 
-# Start Flask development server
-python3 app.py
+# Development & Testing
+python3 app.py                       # Start Flask development server
+python3 migrate_db.py                # Database migration
+python3 comprehensive_team_diagnostics.py  # Team diagnostics
+python3 apply_team_mappings.py       # Apply manual team mappings
+python3 test_fix.py                  # Test API connection
 
-# Database migration
-python3 migrate_db.py
-
-# Start production worker with monitoring
+# Legacy production worker (being phased out)
 ./start_worker.sh start
-
-# Run comprehensive team diagnostics (troubleshooting)
-python3 comprehensive_team_diagnostics.py
-
-# Apply manual team mappings
-python3 apply_team_mappings.py
-
-# Test API connection and configuration
-python3 test_fix.py
 ```
 
 ### Frontend Development
@@ -68,6 +79,17 @@ npm run start      # Production server
 - `upcoming_fixtures.py`: Daily upcoming fixtures fetcher (7 days ahead)
 - `import_data.py`: CSV import fallback and team name normalization
 
+**Automation & Scheduling System**:
+- `scheduler_manager.py`: Central scheduler for all periodic tasks (match updates, fixtures, maintenance)
+- `match_results_updater.py`: Updates match results every 3 hours from API-Football
+- `daily_fixtures_update.py`: Daily refresh of upcoming fixtures (7 days ahead)
+- `daily_elo_maintenance.py`: Daily ELO rating consistency checks and maintenance
+- `background_worker.py`: Non-interactive background worker for cloud deployment (Render)
+- `initialize_and_run.py`: Complete system initialization with daily operation startup
+- `initialize_only.py`: System initialization only (no ongoing operations)
+- `start_system.py`: Interactive system manager for local development
+- `system_status.py`: Comprehensive system health and status checker
+
 **ELO Calculation** (`elo_utils.py`):
 - Mathematical ELO rating updates with validation
 - Match result parsing (win/draw/loss conversion)
@@ -75,20 +97,27 @@ npm run start      # Production server
 
 ### API-Football Integration Details
 
-The system uses a sophisticated multi-phase import strategy:
+The system uses a sophisticated multi-phase import strategy with automated ongoing operations:
 
+**Initial Setup (One-time)**:
 1. **Team Mapping Phase** (~440 requests): Maps 250 teams to API IDs using search + manual mappings
 2. **Historical Import Phase** (~6,000-7,000 requests): Imports match history from 2000+ with tiered coverage:
    - Recent years (2019+): Full coverage
    - Modern era (2010-2018): Dense coverage  
    - Historical (2000-2009): Selective coverage
-3. **Live Updates**: Daily fixture updates and periodic match result updates
+
+**Ongoing Operations (Automated)**:
+3. **Match Updates**: Every 3 hours, fetch completed fixtures and update match results (~50-200 requests/day)
+4. **Fixture Updates**: Daily refresh of upcoming fixtures for next 7 days (~20-50 requests/day)
+5. **System Maintenance**: Daily ELO rating consistency checks and data cleanup
 
 **Critical Implementation Details**:
 - Completed fixtures (status="FT") create both `Fixture` AND `Match` records
 - Only `Match` records are used for ELO calculation (they have scores)
 - Manual team mappings are loaded automatically by both import systems
 - Request rate limiting with conservative buffers to avoid API limits
+- Automated scheduling keeps daily usage under 2,000 requests (well within 7,500/day limit)
+- Background worker mode supports cloud deployment without interactive input
 
 ### Frontend Architecture
 
@@ -139,13 +168,34 @@ NEXT_PUBLIC_API_URL=https://your-backend.render.com
 
 ## Deployment
 
-**Backend** (Render):
-- Deploys automatically from git pushes
-- Uses `gunicorn` with worker processes
-- Environment variables configured in Render dashboard
-- Background scheduler runs via `start_worker.sh`
+### Backend (Render)
 
-**Frontend** (Vercel):
+**Option 1: Complete System with Background Worker (RECOMMENDED)**
+- **Service Type**: Background Worker
+- **Start Command**: `python3 background_worker.py`
+- **Auto-deploys** from git pushes
+- **Environment Variables**:
+  - `API_FOOTBALL_KEY`: Your API-Football key
+  - `DATABASE_URL`: PostgreSQL connection string
+- **Features**: Full system initialization + automated daily operations
+- **Perfect for**: Production deployment with zero maintenance
+
+**Option 2: Web Service + Separate Background Worker**
+- **Web Service**:
+  - Service Type: Web Service
+  - Start Command: `gunicorn app:app`
+  - For Flask API endpoints
+- **Background Worker**:
+  - Service Type: Background Worker
+  - Start Command: `python3 background_worker.py`
+  - For automated data operations
+
+**Option 3: Legacy Setup (Being Phased Out)**
+- Uses `gunicorn` with worker processes
+- Background scheduler runs via `start_worker.sh`
+- Manual setup required
+
+### Frontend (Vercel)
 - Deploys automatically from git pushes to Frontend/ directory
 - Static site generation with API calls to backend
 - Environment variables configured in Vercel dashboard
@@ -159,10 +209,46 @@ NEXT_PUBLIC_API_URL=https://your-backend.render.com
 
 ## Troubleshooting
 
+### System Status & Health Checks
+
+**Check Overall System Status**: Run `python3 system_status.py` for comprehensive system health report including:
+- Environment configuration
+- Database connection and data counts  
+- API key validation
+- Scheduler status and task history
+- Recent task execution logs
+
+**Check Scheduler Status**: Run `python3 scheduler_manager.py --status` to see:
+- Running tasks and schedules
+- Last execution times
+- Success/failure rates
+- Upcoming scheduled tasks
+
+### Common Issues
+
+**System Not Starting**: 
+1. Check environment variables: `python3 system_status.py`
+2. Verify database connection
+3. Ensure API key is valid
+4. Try: `python3 initialize_only.py` for fresh start
+
 **Low Team Mapping Success**: Run `python3 comprehensive_team_diagnostics.py` to analyze API search patterns and generate additional manual mappings.
 
-**ELO Not Calculating**: Ensure `Match` records exist (not just `Fixture` records). Completed matches should create both record types.
+**ELO Not Calculating**: 
+1. Ensure `Match` records exist (not just `Fixture` records)
+2. Check that completed matches create both record types
+3. Run: `python3 daily_elo_maintenance.py` for consistency check
 
-**API Rate Limits**: Check daily request logs. System is designed to stay under 7,500/day but may need adjustment for large imports.
+**API Rate Limits**: 
+1. Check current usage: `python3 system_status.py`
+2. System designed to stay under 2,000 requests/day ongoing
+3. Initial import uses ~6,000-7,000 requests (within 7,500/day limit)
 
-**Database Issues**: Run `python3 migrate_db.py` to ensure schema is current. For corrupt data, clear database and run fresh import.
+**Database Issues**: 
+1. Run `python3 migrate_db.py` to ensure schema is current
+2. For corrupt data, clear database and run `python3 initialize_only.py`
+
+**Scheduler Not Running**:
+1. Check process: `python3 scheduler_manager.py --status`  
+2. Restart: `python3 scheduler_manager.py --restart`
+3. For cloud deployment, ensure background worker is running
