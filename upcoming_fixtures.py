@@ -155,6 +155,11 @@ class UpcomingFixturesManager:
             fixture_date = datetime.fromisoformat(fixture_date_str.replace('Z', '+00:00'))
             
             # Only include fixtures within our time window
+            # Make cutoff_date timezone-aware for comparison
+            if cutoff_date.tzinfo is None:
+                from zoneinfo import ZoneInfo
+                cutoff_date = cutoff_date.replace(tzinfo=ZoneInfo("UTC"))
+            
             if fixture_date > cutoff_date:
                 return False
             
@@ -201,7 +206,8 @@ class UpcomingFixturesManager:
     def _cleanup_old_fixtures(self):
         """Remove old upcoming fixtures that have passed"""
         try:
-            cutoff_date = datetime.now() - timedelta(hours=2)  # 2 hour buffer
+            from zoneinfo import ZoneInfo
+            cutoff_date = datetime.now(ZoneInfo("UTC")) - timedelta(hours=2)  # 2 hour buffer
             
             old_fixtures = Fixture.query.filter(
                 Fixture.date < cutoff_date,

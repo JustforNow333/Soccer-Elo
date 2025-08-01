@@ -114,7 +114,8 @@ class SoccerEloScheduler:
                 from db import db, Fixture, EloRating
                 
                 # Remove very old upcoming fixtures (older than 1 week)
-                cutoff_date = datetime.now() - timedelta(days=7)
+                from zoneinfo import ZoneInfo
+                cutoff_date = datetime.now(ZoneInfo("UTC")) - timedelta(days=7)
                 old_fixtures = Fixture.query.filter(
                     Fixture.date < cutoff_date,
                     Fixture.status.in_(["NS", "TBD", "POST"])
@@ -154,7 +155,7 @@ class SoccerEloScheduler:
                 ).count()
                 
                 recent_fixtures = Fixture.query.filter(
-                    Fixture.date >= datetime.now() - timedelta(days=1)
+                    Fixture.date >= datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
                 ).count()
                 
                 health_info = (
