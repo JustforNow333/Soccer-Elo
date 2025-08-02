@@ -327,6 +327,18 @@ export default function HomePage() {
           </TabsContent>
         </Tabs>
       </div>
+      
+      {/* Footer with Terms of Service */}
+      <footer className="container py-4">
+        <div className="flex justify-end">
+          <Link 
+            href="/terms" 
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            Terms of Service
+          </Link>
+        </div>
+      </footer>
     </div>
   )
 }

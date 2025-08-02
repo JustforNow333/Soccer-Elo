@@ -118,6 +118,9 @@ The system uses a sophisticated multi-phase import strategy with automated ongoi
 - Request rate limiting with conservative buffers to avoid API limits
 - Automated scheduling keeps daily usage under 2,000 requests (well within 7,500/day limit)
 - Background worker mode supports cloud deployment without interactive input
+- **Runtime Compatibility**: Includes timezone-aware datetime handling and modern SQLAlchemy support
+- **Import Progress**: Teams import in waves (88+ teams after 10 minutes is normal progress)
+- **Fixture Processing**: "Teams not found" warnings are normal for non-target teams
 
 ### Frontend Architecture
 
@@ -172,13 +175,14 @@ NEXT_PUBLIC_API_URL=https://your-backend.render.com
 
 **Option 1: Complete System with Background Worker (RECOMMENDED)**
 - **Service Type**: Background Worker
-- **Start Command**: `python3 background_worker.py`
+- **Start Command**: `python3 background_worker.py` ⚠️ **CRITICAL: Do NOT use `start_system.py`**
 - **Auto-deploys** from git pushes
 - **Environment Variables**:
   - `API_FOOTBALL_KEY`: Your API-Football key
   - `DATABASE_URL`: PostgreSQL connection string
 - **Features**: Full system initialization + automated daily operations
 - **Perfect for**: Production deployment with zero maintenance
+- **Runtime**: Includes critical timezone and SQLAlchemy compatibility fixes
 
 **Option 2: Web Service + Separate Background Worker**
 - **Web Service**:
@@ -224,6 +228,18 @@ NEXT_PUBLIC_API_URL=https://your-backend.render.com
 - Success/failure rates
 - Upcoming scheduled tasks
 
+### Critical Runtime Fixes Applied
+
+**DateTime Timezone Compatibility**: Fixed critical timezone comparison errors that caused fixture processing failures:
+- Files updated: `upcoming_fixtures.py`, `scheduler_manager.py`
+- Issue: `can't compare offset-naive and offset-aware datetimes`
+- Fix: Implemented proper UTC timezone handling for API datetime comparisons
+
+**SQLAlchemy Compatibility**: Updated deprecated database engine calls:
+- Files updated: `background_worker.py`, `initialize_and_run.py`, `system_status.py`
+- Issue: `db.engine.execute()` deprecated in SQLAlchemy 2.0+
+- Fix: Replaced with `db.session.execute(text("SELECT 1"))`
+
 ### Common Issues
 
 **System Not Starting**: 
@@ -252,3 +268,24 @@ NEXT_PUBLIC_API_URL=https://your-backend.render.com
 1. Check process: `python3 scheduler_manager.py --status`  
 2. Restart: `python3 scheduler_manager.py --restart`
 3. For cloud deployment, ensure background worker is running
+
+**DateTime/Timezone Errors**: If you see "can't compare offset-naive and offset-aware datetimes":
+1. This indicates timezone compatibility issues with API data
+2. Restart the background worker - fixes have been applied
+3. Issue typically occurs during fixture processing
+
+**Fixture Processing Failures**: If fixtures show 0 counts despite API responses:
+1. Check for timezone comparison errors in logs
+2. Verify teams exist in database (warnings about missing teams are normal for non-target teams)
+3. Run: `python3 system_status.py` to check data integrity
+
+**ELO Ratings Not Updating**: If teams show similar ratings after import:
+1. Verify matches were imported: Check match count in system status
+2. ELO ratings start at 1000 - variation depends on match history
+3. Run: `python3 daily_elo_maintenance.py` for consistency check
+4. Expected range: Top teams 1200-1400, bottom teams 600-800
+
+**Background Worker Issues**:
+1. Use `python3 background_worker.py` NOT `python3 start_system.py` for Render
+2. `start_system.py` requires interactive input - only for local development
+3. Check Render logs for specific error messages
