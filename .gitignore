@@ -8,6 +8,7 @@ __pycache__/
 .next/
 build/
 dist/
+*.tsbuildinfo
 
 # Environment files
 .env
@@ -19,6 +20,7 @@ dist/
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # OS
 .DS_Store
@@ -39,9 +41,22 @@ yarn-error.log*
 *.py[cod]
 *$py.class
 *.so
+*.egg-info/
+
+# Python testing/linting
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
 
 # Legacy/archived files
 legacy/
+
+# Runtime files
+*.pid
+*.sock
 
 # Misc
 .cache/
