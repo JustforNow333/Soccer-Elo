@@ -1,13 +1,18 @@
 from flask import Flask, request, render_template, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from db import db, Team, Match, EloRating, User, Fixture
-from datetime import datetime, timedelta
 from flask_cors import CORS
+from sqlalchemy import or_, and_
+from datetime import datetime, timedelta
 import os
 import requests
-from sqlalchemy import or_, and_
+
+# Database imports
+from db import db, Team, Match, EloRating, User, Fixture
+
+# Utility imports
 from elo_utils import expected_result, update_elo, get_match_result
 from fixture_import import fetch_next_48_hours_fixtures
+from utils.config import config
+from utils.db_helpers import EloQueryHelper, FixtureQueryHelper
 # Optional import for enhanced ELO system
 try:
     from elo_triggers import trigger_elo_after_match_update
@@ -367,24 +372,10 @@ def create_tables():
 
 @app.route("/api/teams/", methods=["GET"])
 def get_teams():
-    # Get latest Elo rating per team in one batch
-    from sqlalchemy.sql import func
-
-    subquery = db.session.query(
-        EloRating.team_id,
-        func.max(EloRating.date).label("latest_date")
-    ).group_by(EloRating.team_id).subquery()
-
-    elo_map = {
-        row.team_id: row.rating
-        for row in db.session.query(EloRating).join(
-            subquery,
-            (EloRating.team_id == subquery.c.team_id) &
-            (EloRating.date == subquery.c.latest_date)
-        )
-    }
-
+    """Get all teams with their latest ELO ratings"""
+    elo_map = EloQueryHelper.get_latest_elo_map()
     teams = Team.query.all()
+
     return jsonify({
         "teams": [
             {
@@ -1065,19 +1056,9 @@ def get_strategic_betting_opportunities():
         return jsonify({"error": "Premium subscription required"}), 403
     
     try:
-        from sqlalchemy import func, and_
-        from datetime import date, timedelta
-        
-        # Get upcoming fixtures from API-Football data (more accurate than historical matches)
-        today = datetime.now().date()
-        upcoming_fixtures = Fixture.query.filter(
-            Fixture.date >= today,
-            Fixture.status == "NS"  # Not Started
-        ).order_by(Fixture.date.asc()).all()
-        
-        # Filter to only include fixtures with teams in our database (with Elo ratings)
-        relevant_fixtures = [f for f in upcoming_fixtures if f.has_elo_teams()]
-        
+        # Get upcoming fixtures with ELO-rated teams
+        relevant_fixtures = FixtureQueryHelper.get_fixtures_with_elo_teams()
+
         if not relevant_fixtures:
             return jsonify({
                 "opportunities": [],
@@ -1089,27 +1070,15 @@ def get_strategic_betting_opportunities():
                 },
                 "message": "No upcoming fixtures found with Elo-rated teams"
             })
-        
-        # Get latest Elo ratings for all teams involved in upcoming fixtures
+
+        # Get latest ELO ratings for all teams involved in upcoming fixtures
         team_ids = set()
         for fixture in relevant_fixtures:
             team_ids.add(fixture.home_team_id)
             team_ids.add(fixture.away_team_id)
-        
-        # Get latest Elo ratings in batch
-        subquery = db.session.query(
-            EloRating.team_id,
-            func.max(EloRating.date).label("latest_date")
-        ).filter(EloRating.team_id.in_(team_ids)).group_by(EloRating.team_id).subquery()
-        
-        elo_map = {
-            row.team_id: row.rating
-            for row in db.session.query(EloRating).join(
-                subquery,
-                (EloRating.team_id == subquery.c.team_id) &
-                (EloRating.date == subquery.c.latest_date)
-            )
-        }
+
+        # Get latest ELO ratings in batch using helper
+        elo_map = EloQueryHelper.get_latest_elo_map(list(team_ids))
         
         opportunities = []
         

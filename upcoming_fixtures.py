@@ -141,26 +141,27 @@ class UpcomingFixturesManager:
             fixture = fixture_data.get("fixture", {})
             teams = fixture_data.get("teams", {})
             league = fixture_data.get("league", {})
-            
+
             # Extract data
             api_fixture_id = fixture.get("id")
             fixture_date_str = fixture.get("date")
             status = fixture.get("status", {}).get("short", "NS")
             venue = fixture.get("venue", {})
-            
+
             if not api_fixture_id or not fixture_date_str:
                 return False
-            
+
             # Parse date
             fixture_date = datetime.fromisoformat(fixture_date_str.replace('Z', '+00:00'))
-            
+
             # Only include fixtures within our time window
-            # Make cutoff_date timezone-aware for comparison
-            if cutoff_date.tzinfo is None:
+            # Make cutoff_date timezone-aware for comparison (create new variable to avoid mutating parameter)
+            cutoff_date_aware = cutoff_date
+            if cutoff_date_aware.tzinfo is None:
                 from zoneinfo import ZoneInfo
-                cutoff_date = cutoff_date.replace(tzinfo=ZoneInfo("UTC"))
-            
-            if fixture_date > cutoff_date:
+                cutoff_date_aware = cutoff_date_aware.replace(tzinfo=ZoneInfo("UTC"))
+
+            if fixture_date > cutoff_date_aware:
                 return False
             
             # Skip if not upcoming (should be NS, TBD, or POST)

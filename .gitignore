@@ -30,6 +30,19 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python compiled
+*.py[cod]
+*$py.class
+*.so
+
+# Legacy/archived files
+legacy/
+
 # Misc
 .cache/
 .turbo 

@@ -1,11 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:www.api-football.com)",
-      "Bash(grep:*)",
-      "Bash(python3:*)",
-      "Bash(find:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:*)",
+      "Bash(if [ -d \"venv\" ])",
+      "Bash(then echo \"✅ Virtual environment exists at ./venv\")",
+      "Bash(else echo \"❌ No venv directory found\")",
+      "Bash(fi)",
+      "Bash(awk:*)",
+      "Bash(do python3 -m py_compile \"$file\")",
+      "Bash(for file in utils/*.py unified_import.py)",
+      "Bash(do echo \"Checking $file...\")"
     ],
-    "deny": []
+    "deny": [],
+    "ask": []
   }
 }

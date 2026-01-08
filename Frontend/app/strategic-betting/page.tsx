@@ -534,7 +534,7 @@ export default function StrategicBettingPage() {
               <div className="flex items-start gap-3">
                 <TrendingUp className="h-5 w-5 text-blue-600 mt-1" />
                 <div>
-                  <h4 className="font-semibold text-blue-600">Good Chance (75-80%)</h4>
+                  <h4 className="font-semibold text-blue-600">Good Chance</h4>
                   <p className="text-sm text-muted-foreground">
                     191-239 Elo difference. Solid betting opportunities with good probability.
                   </p>
@@ -543,7 +543,7 @@ export default function StrategicBettingPage() {
               <div className="flex items-start gap-3">
                 <Target className="h-5 w-5 text-orange-600 mt-1" />
                 <div>
-                  <h4 className="font-semibold text-orange-600">Great Chance (80-90%)</h4>
+                  <h4 className="font-semibold text-orange-600">Great Chance</h4>
                   <p className="text-sm text-muted-foreground">
                     250-399 Elo difference. High-confidence betting opportunities.
                   </p>
@@ -552,7 +552,7 @@ export default function StrategicBettingPage() {
               <div className="flex items-start gap-3">
                 <Crown className="h-5 w-5 text-green-600 mt-1" />
                 <div>
-                  <h4 className="font-semibold text-green-600">Almost Certain (90%+)</h4>
+                  <h4 className="font-semibold text-green-600">Almost Certain</h4>
                   <p className="text-sm text-muted-foreground">
                     400+ Elo difference. Extremely high-confidence opportunities.
                   </p>

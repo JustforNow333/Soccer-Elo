@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { Search, ChevronUp, ChevronDown, Trophy, Medal, Award } from "lucide-react"
+import { Search, ChevronUp, ChevronDown, Trophy, Medal, Award, AlertCircle, Wifi, WifiOff } from "lucide-react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,13 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { api, type Team } from "@/lib/api"
 import { TeamsByLeague } from "@/components/TeamsByLeague"
 import Link from "next/link"
-
-// Add this after the existing imports
-import { AlertCircle, Wifi, WifiOff } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 
 type SortField = "name" | "league" | "elo"
 type SortDirection = "asc" | "desc"

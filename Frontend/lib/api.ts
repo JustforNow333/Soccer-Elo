@@ -11,7 +11,7 @@ const getBaseUrl = () => {
     // Production: Use your Render backend URL
     return 'https://soccer-elo.onrender.com/api'
   }
-  
+
   if (typeof window === 'undefined') {
     // Server-side: use localhost for API calls during SSR
     return 'http://localhost:5000/api'

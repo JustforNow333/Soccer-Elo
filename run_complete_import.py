@@ -29,7 +29,6 @@ def run_complete_import():
     try:
         # Import here to avoid dependency issues
         from app import app
-        from api_import import APIFootballImporter
         from top_250_teams import get_team_mapper
         from migrate_db import migrate_database
         
